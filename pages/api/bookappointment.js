@@ -1,29 +1,33 @@
-// pages/api/bookappointment.js (Rigbot 1.0)
+import { getCalendarClient } from '../../lib/google';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Método no permitido' });
+    return res.status(405).json({ error: 'Método no permitido' });
   }
 
   try {
-    const { name, rut, email, phone, requestedDate, requestedTime } = req.body;
+    const { nombre, fecha } = req.body;
 
-    if (!requestedDate || !requestedTime) {
-      return res.status(400).json({ message: 'Fecha y hora requeridas' });
+    if (!nombre || !fecha) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios' });
     }
 
-    // Respuesta simulada: NO se agenda la hora, solo se confirma la recepción de datos
-    const confirmationMessage = `Recibimos tu solicitud para el día ${requestedDate} a las ${requestedTime}. Un humano del equipo te contactará pronto para confirmar la cita.`;
+    const calendar = await getCalendarClient();
 
-    // Opcional: aquí podrías enviar un email, guardar en Google Sheets, o mandar alerta por webhook
+    const event = {
+      summary: `Cita con ${nombre}`,
+      start: { dateTime: fecha },
+      end: { dateTime: new Date(new Date(fecha).getTime() + 30 * 60000).toISOString() },
+    };
 
-    return res.status(200).json({
-      success: true,
-      message: confirmationMessage,
-      dataReceived: { name, rut, email, phone, requestedDate, requestedTime }
+    await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: event,
     });
+
+    res.status(200).json({ message: 'Cita agendada exitosamente' });
   } catch (error) {
-    console.error('Error en bookappointment 1.0:', error);
-    return res.status(500).json({ message: 'Error interno del servidor' });
+    console.error('Error agendando cita:', error);
+    res.status(500).json({ error: 'Error al agendar la cita' });
   }
 }
