@@ -1,0 +1,13 @@
+# Node modules
+node_modules/
+
+# Mac OS files
+.DS_Store
+
+# Sensitive files
+token.json
+client_secret.json
+authorize.cjs
+
+# Environment variables
+.env
