@@ -1,7 +1,9 @@
-import { getCalendarClient } from '../../lib/google';
-import { getDateRangeFromQuery } from '../../lib/utils';
+// pages/api/getavailableappointments.js
 
-export default async function handler(req, res) {
+const { getCalendarClient } = require('../../lib/google');
+const { getDateRangeFromQuery } = require('../../lib/utils');
+
+module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Método no permitido' });
   }
@@ -25,7 +27,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ appointments });
   } catch (error) {
-    console.error('Error obteniendo disponibilidad:', error);
+    console.error('Error al obtener eventos:', error);
     res.status(500).json({ error: 'Error consultando Google Calendar' });
   }
-}
+};
