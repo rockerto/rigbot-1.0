@@ -19,11 +19,30 @@ paths:
               properties:
                 start_date:
                   type: string
+                  format: date
                 end_date:
                   type: string
+                  format: date
+                preferred_time:
+                  type: string
+                  example: "16:00"
+                  description: Hora preferida del paciente (opcional, formato HH:mm)
+              required:
+                - start_date
+                - end_date
       responses:
         '200':
           description: Lista de horas disponibles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggested:
+                    type: array
+                    items:
+                      type: string
+                    description: Lista de horarios sugeridos
 
   /api/bookappointment:
     post:
@@ -38,8 +57,10 @@ paths:
               properties:
                 date:
                   type: string
+                  format: date
                 time:
                   type: string
+                  example: "16:00"
                 patient:
                   type: object
                   properties:
@@ -54,3 +75,14 @@ paths:
       responses:
         '200':
           description: Confirmación de cita agendada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Cita agendada correctamente"

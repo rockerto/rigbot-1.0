@@ -11,8 +11,7 @@ const WORKING_HOURS = [
 function generateTimeBlocks(dateStr) {
   return WORKING_HOURS.map(time => {
     const [hour, minute] = time.split(':');
-    const start = new Date(dateStr);
-    start.setHours(parseInt(hour), parseInt(minute), 0, 0);
+    const start = new Date(`${dateStr}T${time}:00`);
     const end = new Date(start.getTime() + 30 * 60 * 1000);
     return { start, end };
   });
@@ -60,18 +59,23 @@ export default async function handler(req, res) {
 
   try {
     const calendar = await getCalendarClient();
+    const startTime = new Date(`${start_date}T00:00:00`);
+    const endTime = new Date(`${end_date}T23:59:59`);
+
     const response = await calendar.events.list({
       calendarId: 'primary',
-      timeMin: new Date(start_date).toISOString(),
-      timeMax: new Date(end_date).toISOString(),
+      timeMin: startTime.toISOString(),
+      timeMax: endTime.toISOString(),
       singleEvents: true,
       orderBy: 'startTime'
     });
 
     const busySlots = response.data.items.map(event => ({
-      start: event.start.dateTime || event.start.date,
-      end: event.end.dateTime || event.end.date
+      start: event.start.dateTime || `${event.start.date}T00:00:00`,
+      end: event.end.dateTime || `${event.end.date}T23:59:59`
     }));
+
+    console.log('EVENTOS OCUPADOS:', busySlots);
 
     const blocks = generateTimeBlocks(start_date);
     const available = blocks.filter(block => isSlotAvailable(block, busySlots));
