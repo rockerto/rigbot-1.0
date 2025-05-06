@@ -4,7 +4,7 @@ info:
   description: API para consultar y agendar horas con RIG.
   version: 1.0.0
 servers:
-  - url: https://rig-calendar.vercel.app
+  - url: https://rigbot-1-0.vercel.app
 paths:
   /api/getavailableappointments:
     post:
