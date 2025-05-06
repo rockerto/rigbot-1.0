@@ -39,6 +39,14 @@ function findNearbySlots(desiredTime, available) {
   });
 }
 
+function findNextMatchingSlot(desiredTime, available) {
+  const target = new Date(`1970-01-01T${desiredTime}:00Z`).getTime();
+  return available.find(time => {
+    const actual = new Date(`1970-01-01T${time}:00Z`).getTime();
+    return actual === target;
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido' });
@@ -70,8 +78,12 @@ export default async function handler(req, res) {
     const availableFormatted = available.map(block => formatTime(block.start));
 
     if (preferred_time) {
+      const exactMatch = findNextMatchingSlot(preferred_time, availableFormatted);
       const nearby = findNearbySlots(preferred_time, availableFormatted);
-      return res.status(200).json({ nearby });
+      return res.status(200).json({
+        exact: exactMatch || null,
+        nearby: exactMatch ? [] : nearby
+      });
     }
 
     const suggested = [availableFormatted[0], availableFormatted[3], availableFormatted[6]].filter(Boolean);
