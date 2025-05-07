@@ -11,10 +11,17 @@
   "dependencies": {
     "googleapis": "^105.0.0",
     "next": "14.1.4",
+    "openai": "^4.97.0",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },
-  "keywords": ["rigbot", "google calendar", "whatsapp", "assistant", "vercel"],
+  "keywords": [
+    "rigbot",
+    "google calendar",
+    "whatsapp",
+    "assistant",
+    "vercel"
+  ],
   "author": "Roberto Ibacache",
   "license": "MIT"
 }
