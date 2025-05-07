@@ -1,89 +1,103 @@
-// rigbot-widget.js
-
-(function () {
-  const rigbotConfig = window.rigbotConfig || {};
-  const backendUrl = rigbotConfig.backendUrl || '';
-  const whatsappNumber = rigbotConfig.whatsappNumber || '';
-
-  if (!backendUrl || !whatsappNumber) {
-    console.warn('[Rigbot] Configuración incompleta.');
-    return;
-  }
-
-  // Estilos básicos para los botones
-  const style = document.createElement('style');
-  style.textContent = `
-    .rigbot-floating-container {
+(() => {
+  const createBubble = () => {
+    const bubble = document.createElement('div');
+    bubble.id = 'rigbot-bubble';
+    bubble.style.cssText = `
       position: fixed;
-      z-index: 9999;
-    }
-    #rigbot-button {
       bottom: 20px;
       right: 20px;
+      width: 64px;
+      height: 64px;
       background: #007bff;
-      color: white;
-      padding: 12px 18px;
-      border-radius: 50px;
-      font-weight: bold;
+      border-radius: 50%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    #rigbot-whatsapp {
-      bottom: 20px;
-      left: 20px;
-      background: #25d366;
-      color: white;
-      padding: 12px 18px;
-      border-radius: 50px;
-      font-weight: bold;
-      cursor: pointer;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-  `;
-  document.head.appendChild(style);
+      z-index: 9999;
+    `;
+    bubble.innerHTML = `<span style="color: white; font-size: 32px;">💬</span>`;
+    document.body.appendChild(bubble);
+    bubble.addEventListener('click', openChatWindow);
+  };
 
-  // Crear botón de Rigbot
-  const rigbotBtn = document.createElement('div');
-  rigbotBtn.id = 'rigbot-button';
-  rigbotBtn.className = 'rigbot-floating-container';
-  rigbotBtn.innerText = '¿Necesitas ayuda?';
-  rigbotBtn.style.position = 'fixed';
-  rigbotBtn.style.bottom = '20px';
-  rigbotBtn.style.right = '20px';
-  rigbotBtn.addEventListener('click', async () => {
-    const msg = 'Un momento por favor, consultando disponibilidad...';
-    alert(msg);
+  const openChatWindow = () => {
+    if (document.getElementById('rigbot-window')) return;
+
+    const container = document.createElement('div');
+    container.id = 'rigbot-window';
+    container.style.cssText = `
+      position: fixed;
+      bottom: 100px;
+      right: 20px;
+      width: 320px;
+      height: 400px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      z-index: 9999;
+      overflow: hidden;
+    `;
+
+    container.innerHTML = `
+      <div style="padding: 8px; background: #007bff; color: white; font-weight: bold;">
+        Rigbot 🤖
+      </div>
+      <div id="rigbot-chat" style="flex: 1; padding: 10px; overflow-y: auto; font-family: sans-serif; font-size: 14px;"></div>
+      <div style="display: flex; border-top: 1px solid #ddd;">
+        <input type="text" id="rigbot-input" placeholder="Escribe algo..." style="flex: 1; border: none; padding: 10px;" />
+        <button id="rigbot-send" style="background: #007bff; color: white; border: none; padding: 10px;">Enviar</button>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    document.getElementById('rigbot-send').addEventListener('click', sendMessage);
+    document.getElementById('rigbot-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    addMessage("Hola 👋 Soy Rigbot, ¿en qué puedo ayudarte hoy?");
+  };
+
+  const addMessage = (text, from = 'bot') => {
+    const chat = document.getElementById('rigbot-chat');
+    const bubble = document.createElement('div');
+    bubble.style.margin = '8px 0';
+    bubble.style.background = from === 'bot' ? '#f1f1f1' : '#dcf8c6';
+    bubble.style.alignSelf = from === 'bot' ? 'flex-start' : 'flex-end';
+    bubble.style.padding = '8px 12px';
+    bubble.style.borderRadius = '8px';
+    bubble.style.maxWidth = '80%';
+    bubble.textContent = text;
+    chat.appendChild(bubble);
+    chat.scrollTop = chat.scrollHeight;
+  };
+
+  const sendMessage = async () => {
+    const input = document.getElementById('rigbot-input');
+    const text = input.value.trim();
+    if (!text) return;
+    addMessage(text, 'user');
+    input.value = '';
     try {
-      const res = await fetch(backendUrl, {
+      addMessage('⏳ Un momento por favor...');
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          start_date: new Date().toISOString().split('T')[0],
-          end_date: new Date().toISOString().split('T')[0]
-        })
+        body: JSON.stringify({ message: text })
       });
-      const data = await res.json();
-      const horarios = data?.suggested?.join(', ') || 'No hay horas disponibles hoy.';
-      alert('Horarios disponibles: ' + horarios + '\nPara agendar, escribe por WhatsApp.');
+      const data = await response.json();
+      document.getElementById('rigbot-chat').lastChild.remove(); // remover "Un momento..."
+      addMessage(data.response || 'Lo siento, no entendí eso.');
     } catch (err) {
-      alert('Hubo un error al consultar las horas.');
+      document.getElementById('rigbot-chat').lastChild.remove();
+      addMessage('❌ Ocurrió un error al conectarme con Rigbot.');
     }
-  });
+  };
 
-  // Crear botón de WhatsApp
-  const wspBtn = document.createElement('a');
-  wspBtn.id = 'rigbot-whatsapp';
-  wspBtn.className = 'rigbot-floating-container';
-  wspBtn.href = `https://wa.me/${whatsappNumber.replace('+', '')}`;
-  wspBtn.target = '_blank';
-  wspBtn.innerText = 'WhatsApp';
-  wspBtn.style.position = 'fixed';
-  wspBtn.style.bottom = '20px';
-  wspBtn.style.left = '20px';
-
-  // Insertar ambos en el body
-  window.addEventListener('load', () => {
-    document.body.appendChild(rigbotBtn);
-    document.body.appendChild(wspBtn);
-  });
+  window.addEventListener('load', createBubble);
 })();
