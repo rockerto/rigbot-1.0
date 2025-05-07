@@ -70,12 +70,15 @@ export default async function handler(req, res) {
       orderBy: 'startTime'
     });
 
-    const busySlots = response.data.items.map(event => ({
-      start: event.start.dateTime || `${event.start.date}T00:00:00`,
-      end: event.end.dateTime || `${event.end.date}T23:59:59`
-    }));
+    // Solo usar eventos que tienen hora definida (ignorar all-day)
+    const busySlots = response.data.items
+      .filter(event => event.start.dateTime && event.end.dateTime)
+      .map(event => ({
+        start: event.start.dateTime,
+        end: event.end.dateTime
+      }));
 
-    console.log('EVENTOS OCUPADOS:', busySlots);
+    console.log('EVENTOS OCUPADOS:', busySlots); // Puedes borrar esto luego
 
     const blocks = generateTimeBlocks(start_date);
     const available = blocks.filter(block => isSlotAvailable(block, busySlots));
