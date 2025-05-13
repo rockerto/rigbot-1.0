@@ -9,23 +9,33 @@ const openai = new OpenAI({
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 
-// Función auxiliar para obtener el próximo día de la semana (0=Domingo, ..., 4=Jueves)
-// partiendo desde 'startDate' (que ya está en la zona horaria correcta, ej. Chile)
-function getNextDayOfWeek(targetDayIndex, startDate, timeZone) {
-  const currentDayIndex = startDate.getDay(); // 0 para Domingo, 1 para Lunes...
-  let daysToAdd = targetDayIndex - currentDayIndex;
-  if (daysToAdd < 0) {
-    daysToAdd += 7; // Si ya pasó esta semana, la próxima
-  } else if (daysToAdd === 0 && new Date().getHours() >= 20 && startDate.getDate() === new Date().getDate()){
-    // Si es hoy y ya es tarde (ej. después de las 8 PM), buscar para la próxima semana
-    daysToAdd +=7;
-  }
+// Offset UTC para Chile (CLT GMT-4).
+// ¡¡¡ADVERTENCIA MUY IMPORTANTE!!! Esto NO maneja el cambio de horario de verano (CLST GMT-3).
+// Para una solución de producción robusta, se NECESITA una librería de timezones o una API.
+// En Mayo, Chile está en GMT-4.
+const CHILE_UTC_OFFSET_HOURS = -4; // Chile está UTC-4 horas
+
+function convertChileTimeToUtc(dateObjectUtcDay, chileHour, chileMinute) {
+  // dateObjectUtcDay es un Date object al inicio de un día UTC (ej. 2025-05-15T00:00:00.000Z)
+  // chileHour y chileMinute son la hora local de Chile que queremos convertir (ej. 10, 0 para 10:00 AM Chile)
   
-  const nextDate = new Date(startDate);
-  nextDate.setDate(startDate.getDate() + daysToAdd);
-  return nextDate;
+  // Calculamos la hora UTC correspondiente
+  let utcHour = chileHour - CHILE_UTC_OFFSET_HOURS; // Ej: 10 - (-4) = 14 UTC
+
+  const newUtcDate = new Date(dateObjectUtcDay); // Clonamos para no modificar el original
+  newUtcDate.setUTCHours(utcHour, chileMinute, 0, 0);
+  return newUtcDate;
 }
 
+function getDayIdentifier(dateObj, timeZone) {
+    // Devuelve un string YYYY-MM-DD para una fecha en una timezone específica
+    return new Intl.DateTimeFormat('en-CA', { // en-CA da YYYY-MM-DD
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: timeZone
+    }).format(dateObj);
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,173 +57,169 @@ export default async function handler(req, res) {
     if (isCalendarQuery) {
       console.log('⏳ Detectada consulta de calendario');
       const calendar = await getCalendarClient();
+      const serverNowUtc = new Date(); // Hora actual del servidor (UTC)
 
-      // --- MANEJO DE FECHA Y HORA CON NATIVE DATE Y CONSIDERANDO ZONA HORARIA PARA SALIDA ---
-      // Asumimos que el servidor Vercel corre en UTC.
-      // 'nowServerTime' es la hora actual del servidor (UTC)
-      const nowServerTime = new Date(); 
-      
-      // Para determinar 'hoy' en Chile, necesitamos la hora actual de Chile
-      // Usaremos Intl para obtener el offset, aunque es un poco hacky para cálculos, sirve para 'hoy'
-      // Una forma más robusta sería tener el offset o usar una librería mínima si fuera necesario.
-      // Por ahora, asumimos que las operaciones con 'nowServerTime' y sumando días son en UTC
-      // y solo al final formateamos a 'America/Santiago'.
+      let targetDateObj = null; // El objeto Date del día específico que busca el usuario (en Chile TZ)
+      let targetHourChile = null; // La hora específica en Chile (0-23)
+      let targetMinuteChile = 0;  // El minuto específico en Chile (0 o 30)
+      let timeOfDay = null;     // "morning" o "afternoon"
 
-      let targetDate = null; // La fecha específica que el usuario podría querer
-      let targetHour = null; // La hora específica (ej. 15 para 3 PM)
-      let timeOfDay = null; // "mañana" (morning) o "tarde" (afternoon)
-
-      // --- Extracción básica de día y hora ---
+      // --- Extracción de Día ---
       const dayKeywords = { 'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'miércoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6, 'sábado': 6 };
       
-      // Crear 'todayInChile' para referencia de qué día es "hoy" o "mañana" en Chile
-      // Esto se hace formateando la hora del servidor a la zona de Chile y parseando de nuevo.
-      // No es ideal para cálculos complejos de DST, pero para 'hoy'/'mañana' funciona.
-      const formatterForToday = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'America/Santiago' });
-      const parts = formatterForToday.formatToParts(nowServerTime).reduce((acc, part) => { acc[part.type] = part.value; return acc; }, {});
-      const todayInChile = new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`);
+      // 'todayInChileLocal' es el objeto Date que representa el inicio del día de HOY en Chile
+      const todayInChileLocal = new Date(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', year: 'numeric', month: 'numeric', day: 'numeric' }).format(serverNowUtc));
+      todayInChileLocal.setHours(0,0,0,0);
 
 
       if (lowerMessage.includes('hoy')) {
-        targetDate = new Date(todayInChile); // Usar el 'hoy' de Chile
-        targetDate.setHours(0,0,0,0); // Inicio del día
+        targetDateObj = new Date(todayInChileLocal);
       } else if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) {
-        targetDate = new Date(todayInChile);
-        targetDate.setDate(targetDate.getDate() + 1);
-        targetDate.setHours(0,0,0,0);
+        targetDateObj = new Date(todayInChileLocal);
+        targetDateObj.setDate(targetDateObj.getDate() + 1);
       } else {
         for (const [keyword, dayIndex] of Object.entries(dayKeywords)) {
           if (lowerMessage.includes(keyword)) {
-            targetDate = getNextDayOfWeek(dayIndex, todayInChile, 'America/Santiago');
-            targetDate.setHours(0,0,0,0);
+            let tempDate = new Date(todayInChileLocal);
+            let currentDayIndex = tempDate.getDay();
+            let daysToAdd = dayIndex - currentDayIndex;
+            if (daysToAdd < 0 || (daysToAdd === 0 && serverNowUtc.getHours() >= (19 - CHILE_UTC_OFFSET_HOURS))) { // Si es hoy y ya pasó el horario laboral
+                daysToAdd += 7;
+            }
+            tempDate.setDate(tempDate.getDate() + daysToAdd);
+            targetDateObj = tempDate;
             break;
           }
         }
       }
+      if (targetDateObj) console.log(`🗓️ Día objetivo (Chile): ${targetDateObj.toLocaleDateString('es-CL')}`);
 
-      if (targetDate) {
-        console.log(`🗓️ Día objetivo detectado (en Chile): ${targetDate.toLocaleDateString('es-CL')}`);
-      }
 
-      const timeMatch = lowerMessage.match(/(\d{1,2})(:\d{2})?\s*(pm|am|h|hrs)?/);
+      // --- Extracción de Hora ---
+      const timeMatch = lowerMessage.match(/(\d{1,2})\s*(:(00|30))?\s*(pm|am|h|hr|hrs)?/i);
       if (timeMatch) {
         let hour = parseInt(timeMatch[1], 10);
-        const isPm = timeMatch[3] === 'pm';
-        if (isPm && hour < 12) hour += 12;
-        if (!isPm && timeMatch[3] !== 'am' && hour < 9) { // heurística: si dice 2, 3, 4 sin am/pm, es tarde
-            if (hour >= 1 && hour <= 7) hour += 12; // 1 -> 13, 7 -> 19
-        }
-        targetHour = hour;
-        console.log(`⏰ Hora objetivo detectada: ${targetHour}:00`);
+        const minuteStr = timeMatch[3];
+        targetMinuteChile = minuteStr ? parseInt(minuteStr, 10) : 0;
+
+        const isPm = timeMatch[4] && timeMatch[4].toLowerCase() === 'pm';
+        const isAm = timeMatch[4] && timeMatch[4].toLowerCase() === 'am';
+
+        if (isPm && hour >= 1 && hour <= 11) hour += 12;
+        if (isAm && hour === 12) hour = 0; // 12 AM es 0 horas
+        
+        // Heurística para horas sin am/pm (ej. "a las 3" -> 3 PM)
+        if (!isPm && !isAm && hour >= 1 && hour <= 7) hour += 12; 
+
+        targetHourChile = hour;
+        console.log(`⏰ Hora objetivo (Chile): ${targetHourChile}:${targetMinuteChile.toString().padStart(2,'0')}`);
       }
 
-
-      if (!targetHour) { // Solo si no se especificó hora exacta
+      if (!targetHourChile) {
         if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) timeOfDay = 'morning';
         else if (lowerMessage.includes('tarde')) timeOfDay = 'afternoon';
+        if(timeOfDay) console.log(`🕒 Franja horaria: ${timeOfDay}`);
       }
 
-      // Obtener eventos del calendario
-      const calendarStartTime = new Date(nowServerTime); // Desde ahora UTC
-      const calendarEndTime = new Date(nowServerTime);
-      calendarEndTime.setDate(calendarEndTime.getDate() + 7); // Para los próximos 7 días
+      // --- Obtener eventos del calendario (próximos 7 días UTC) ---
+      const calendarQueryStartUtc = new Date(serverNowUtc);
+      const calendarQueryEndUtc = new Date(serverNowUtc);
+      calendarQueryEndUtc.setDate(calendarQueryEndUtc.getDate() + 7);
 
-      const response = await calendar.events.list({
+      const googleResponse = await calendar.events.list({
         calendarId: 'primary',
-        timeMin: calendarStartTime.toISOString(),
-        timeMax: calendarEndTime.toISOString(),
+        timeMin: calendarQueryStartUtc.toISOString(),
+        timeMax: calendarQueryEndUtc.toISOString(),
         singleEvents: true,
         orderBy: 'startTime'
       });
 
-      const busySlots = response.data.items.map(e => {
-        if (e.start?.dateTime && e.end?.dateTime) {
-          return {
-            start: new Date(e.start.dateTime).getTime(), // UTC timestamp
-            end: new Date(e.end.dateTime).getTime()   // UTC timestamp
-          };
-        } // Omitimos eventos de día completo para simplificar la lógica de slots
-      }).filter(Boolean);
+      const busySlots = googleResponse.data.items
+        .filter(e => e.status !== 'cancelled' && e.start?.dateTime && e.end?.dateTime)
+        .map(e => ({
+          start: new Date(e.start.dateTime).getTime(), // UTC timestamp
+          end: new Date(e.end.dateTime).getTime()     // UTC timestamp
+        }));
 
-      const WORKING_HOURS = [
+      // --- Generar y Filtrar Slots Disponibles ---
+      const WORKING_HOURS_CHILE = [ // Horas locales de Chile
         '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
         '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
         '18:00', '18:30', '19:00', '19:30'
       ];
-
       const availableSlotsOutput = [];
-      // Iteramos sobre los próximos 7 días basados en el tiempo del servidor (UTC)
-      for (let i = 0; i < 7; i++) { // 7 días desde hoy (servidor)
-        const currentProcessingDayUtc = new Date(nowServerTime);
-        currentProcessingDayUtc.setDate(nowServerTime.getDate() + i);
-        currentProcessingDayUtc.setHours(0, 0, 0, 0); // Inicio del día UTC
 
-        // Si el usuario especificó un targetDate (que está en timezone Chile),
-        // comparamos si currentProcessingDayUtc (convertido a Chile) es ese día.
-        if (targetDate) {
-            // Convertimos el currentProcessingDayUtc a la fecha de Chile para comparar
-            const currentProcessingDayInChileFormatted = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/Santiago' }).format(currentProcessingDayUtc);
-            const targetDateFormatted = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/Santiago' }).format(targetDate);
-            if (currentProcessingDayInChileFormatted !== targetDateFormatted) {
-              continue; // No es el día que el usuario pidió
-            }
+      for (let i = 0; i < 7; i++) { // Iterar sobre los próximos 7 días
+        const currentDayUtc = new Date(serverNowUtc); // Día base para el cálculo del slot
+        currentDayUtc.setUTCDate(serverNowUtc.getUTCDate() + i); // Avanzar día en UTC
+        currentDayUtc.setUTCHours(0, 0, 0, 0); // Inicio del día UTC
+
+        // Si el usuario especificó un día (targetDateObj está en hora Chile),
+        // comparamos si el currentDayUtc (formateado a Chile) es ese día.
+        if (targetDateObj) {
+          if (getDayIdentifier(currentDayUtc, 'America/Santiago') !== getDayIdentifier(targetDateObj, 'America/Santiago')) {
+            continue; // No es el día que el usuario pidió
+          }
         }
-        
-        WORKING_HOURS.forEach(time => {
-          const [slotHourStr, slotMinuteStr] = time.split(':');
-          const slotH = parseInt(slotHourStr, 10);
-          const slotM = parseInt(slotMinuteStr, 10);
 
-          // Filtro por hora específica
-          if (targetHour !== null && slotH !== targetHour) return;
-          
-          // Filtro por franja horaria (mañana/tarde) si no hay hora específica
-          if (targetHour === null && timeOfDay) {
-            if (timeOfDay === 'morning' && (slotH < 10 || slotH >= 14)) return; // Mañana: 10:00-13:30
-            if (timeOfDay === 'afternoon' && (slotH < 14 || slotH > 19)) return; // Tarde: 14:00-19:30 (último slot 19:30)
+        for (const timeChile of WORKING_HOURS_CHILE) {
+          const [hChileStr, mChileStr] = timeChile.split(':');
+          const hChile = parseInt(hChileStr, 10);
+          const mChile = parseInt(mChileStr, 10);
+
+          // Aplicar filtros de hora/franja si existen
+          if (targetHourChile !== null) { // Usuario pidió hora específica
+            if (hChile !== targetHourChile || mChile !== targetMinuteChile) continue;
+          } else if (timeOfDay) { // Usuario pidió franja (mañana/tarde)
+            if (timeOfDay === 'morning' && (hChile < 10 || hChile >= 14)) continue;
+            if (timeOfDay === 'afternoon' && (hChile < 14 || hChile > 19 || (hChile === 19 && mChile > 30))) continue;
           }
 
-          const slotStartUtc = new Date(currentProcessingDayUtc);
-          slotStartUtc.setUTCHours(slotH, slotM, 0, 0); // CREAR EL SLOT EN UTC
+          // Convertir la hora local de Chile del slot a UTC
+          const slotStartUtc = convertChileTimeToUtc(currentDayUtc, hChile, mChile);
+          
+          if (isNaN(slotStartUtc.getTime())) {
+            console.error("Slot inválido generado:", currentDayUtc, hChile, mChile);
+            continue;
+          }
 
-          // Si el slot es en el pasado (comparado con la hora actual del servidor), lo ignoramos
-          if (slotStartUtc < nowServerTime) return;
+          // Si el slot es pasado (comparado con ahora UTC), ignorar
+          if (slotStartUtc < serverNowUtc) continue;
 
           const slotEndUtc = new Date(slotStartUtc);
-          slotEndUtc.setUTCMinutes(slotStartUtc.getUTCMinutes() + 30);
+          slotEndUtc.setUTCMinutes(slotEndUtc.getUTCMinutes() + 30);
 
           const isBusy = busySlots.some(busy => slotStartUtc.getTime() < busy.end && slotEndUtc.getTime() > busy.start);
 
           if (!isBusy) {
-            availableSlotsOutput.push(new Intl.DateTimeFormat('es-CL', {
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
-              timeZone: 'America/Santiago' // MUY IMPORTANTE para la salida correcta
-            }).format(slotStartUtc)); // Formatear el slot UTC a la hora de Chile
+            availableSlotsOutput.push(
+              new Intl.DateTimeFormat('es-CL', {
+                weekday: 'long', day: 'numeric', month: 'long',
+                hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago'
+              }).format(slotStartUtc) // Formatear el slot UTC a la hora de Chile
+            );
           }
-        });
+        }
       }
       
+      // --- Construir Respuesta ---
       let reply = '';
       const MAX_SUGGESTIONS = 5;
 
-      if (targetHour !== null) { // Si se buscó una hora específica
+      if (targetHourChile !== null) { // Si se buscó una hora específica
         if (availableSlotsOutput.length > 0) {
-          // Debería haber solo un slot si se encontró y coincidió la hora
-          reply = `¡Sí! El ${availableSlotsOutput[0]} está disponible.`;
+          // Debería haber solo un slot en availableSlotsOutput debido al filtro
+          reply = `¡Sí! El ${availableSlotsOutput[0]} está disponible. Te recomiendo contactar directamente para confirmar y reservar.`;
         } else {
           let specificTimeQuery = "";
-          if(targetDate) specificTimeQuery += `${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDate)} `;
-          specificTimeQuery += `a las ${targetHour}:00`;
+          if(targetDateObj) specificTimeQuery += `${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateObj)} `;
+          specificTimeQuery += `a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`;
           reply = `Lo siento, ${specificTimeQuery} no se encuentra disponible. ¿Te gustaría buscar otro horario?`;
         }
       } else if (availableSlotsOutput.length > 0) {
         let intro = `📅 Estas son algunas horas disponibles`;
-        if (targetDate) {
-            intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDate)}`;
+        if (targetDateObj) { // Si se especificó un día, usarlo en la intro
+            intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateObj)}`;
         }
         if (timeOfDay === 'morning') intro += ' por la mañana';
         if (timeOfDay === 'afternoon') intro += ' por la tarde';
@@ -225,18 +231,19 @@ export default async function handler(req, res) {
         }
       } else {
         reply = 'No se encontraron horas disponibles para la fecha o rango especificado.';
-        if (targetDate || timeOfDay) reply += ' ¿Te gustaría probar con otra búsqueda?';
+        if (targetDateObj || timeOfDay || targetHourChile) reply += ' ¿Te gustaría probar con otra búsqueda?';
       }
 
+      console.log('✅ Respuesta generada:', reply);
       return res.status(200).json({ response: reply });
-    }
+    } // Fin if (isCalendarQuery)
 
-    // Si no es consulta de calendario, usar OpenAI
+    // --- Si no es consulta de calendario, usar OpenAI ---
     console.log('💡 Consulta normal, usando OpenAI');
     const chatResponse = await openai.chat.completions.create({
       model: MODEL,
       messages: [
-        { role: 'system', content: 'Eres Rigbot, un amable asistente virtual de una consulta quiropráctica en Copiapó. Responde siempre de forma amigable y cercana. Si el usuario solicita agendar, indícale que solo puedes consultar disponibilidad, no reservar.' },
+        { role: 'system', content: 'Eres Rigbot, un amable asistente virtual de una consulta quiropráctica en Copiapó. Responde siempre de forma amigable y cercana. Si el usuario solicita agendar, indícale que solo puedes consultar disponibilidad, no reservar. Cuando consultes disponibilidad y encuentres un horario específico, informa que está disponible y sugiere contactar para reservar. Si no encuentras, informa que no está disponible y pregunta si desea buscar otro horario.' },
         { role: 'user', content: message }
       ]
     });
@@ -245,7 +252,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('❌ Error en Rigbot:', error);
-    console.error(error.stack); // Loguear el stacktrace completo
+    console.error(error.stack);
     return res.status(500).json({ error: 'Ocurrió un error en Rigbot. ' + error.message });
   }
 }
