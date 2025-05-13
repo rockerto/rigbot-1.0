@@ -1,87 +1,71 @@
-import { OpenAI } from 'openai';
+import { getCalendarClient } from '@/lib/google';
+import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const ASSISTANT_ID = 'asst_xLjjNmtyUT5eu3YzjHZRBCdl'; // Tu nuevo Assistant ID
+const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método no permitido' });
-  }
-
-  console.log('🌟 API KEY:', process.env.OPENAI_API_KEY ? '✅ SET' : '❌ NOT SET');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
   const { message } = req.body;
-
-  if (!message) {
-    return res.status(400).json({ error: 'Falta el mensaje del usuario' });
-  }
-
-  console.log('📨 Mensaje recibido:', message);
+  if (!message) return res.status(400).json({ error: 'Falta el mensaje del usuario' });
 
   try {
-    const thread = await openai.beta.threads.create();
-    console.log('✅ Thread creado:', thread.id);
+    console.log('📨 Mensaje recibido:', message);
 
-    await openai.beta.threads.messages.create(thread.id, {
-      role: 'user',
-      content: message
-    });
-    console.log('✅ Mensaje enviado al thread');
+    // Detectar si la pregunta es de horarios
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes('hora') || lowerMessage.includes('turno') || lowerMessage.includes('disponibilidad')) {
+      console.log('⏳ Detectada consulta de calendario');
+      const calendar = await getCalendarClient();
 
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: ASSISTANT_ID
-    });
-    console.log('✅ Run iniciado:', run.id);
+      const startTime = new Date();
+      const endTime = new Date();
+      endTime.setDate(endTime.getDate() + 7);
 
-    let status = run.status;
-    let attempts = 0;
-    const maxAttempts = 10;
+      const response = await calendar.events.list({
+        calendarId: 'primary',
+        timeMin: startTime.toISOString(),
+        timeMax: endTime.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
 
-    while (status !== 'completed' && attempts < maxAttempts) {
-      console.log(`⏳ Estado intento ${attempts + 1}:`, status);
+      const slots = response.data.items
+        .filter(e => e.start.dateTime && e.end.dateTime)
+        .map(e => new Date(e.start.dateTime).toLocaleString('es-CL', { hour: '2-digit', minute: '2-digit', weekday: 'long', day: 'numeric', month: 'long' }));
 
-      if (status === 'requires_action') {
-        // Aquí normalmente enviarías un tool_output, pero en nuestro caso simplemente abortamos
-        console.log('⚠️ requires_action detectado. No manejado. Abortamos.');
-        return res.status(500).json({ error: 'El asistente requiere acción adicional no soportada.' });
-      }
+      const reply = slots.length > 0 
+        ? `📅 Los horarios disponibles son:
+- ${slots.join('\n- ')}`
+        : 'No se encontraron horas disponibles esta semana.';
 
-      if (status === 'failed') throw new Error('La ejecución falló');
-
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      const currentRun = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      status = currentRun.status;
-      attempts++;
+      return res.status(200).json({ response: reply });
     }
 
-    if (status !== 'completed') {
-      return res.status(500).json({ error: 'El modelo tardó demasiado en responder' });
-    }
+    // Si no es de calendario, responder con GPT normal
+    console.log('💡 Consulta normal, usando OpenAI');
+    const chatResponse = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: 'Eres Rigbot, un amable asistente virtual de una consulta quiropráctica en Copiapó. Responde siempre de forma amigable y cercana. Si el usuario solicita agendar, indícale que solo puedes consultar disponibilidad, no reservar.' },
+        { role: 'user', content: message }
+      ]
+    });
 
-    const messages = await openai.beta.threads.messages.list(thread.id);
-    const response = messages.data
-      .filter(m => m.role === 'assistant')
-      .map(m => m.content[0]?.text?.value)
-      .filter(Boolean)
-      .join('\n');
+    const gptReply = chatResponse.choices[0].message.content.trim();
+    return res.status(200).json({ response: gptReply });
 
-    console.log('✅ Respuesta generada');
-
-    return res.status(200).json({ response });
   } catch (error) {
-    console.error('❌ Error al hablar con el GPT personalizado:', error);
-    return res.status(500).json({ error: 'Error al hablar con Rigbot' });
+    console.error('❌ Error en Rigbot:', error);
+    return res.status(500).json({ error: 'Ocurrió un error en Rigbot.' });
   }
 }
