@@ -2,9 +2,9 @@
 
 import { getCalendarClient } from '@/lib/google';
 import OpenAI from 'openai';
-// IMPORTS ESTÁTICOS PARA DATE-FNS:
-import { zonedTimeToUtc, utcToZonedTime, format, startOfDay, endOfDay, addDays, getDay, isEqual, addMinutes } from 'date-fns-tz';
-import { es } from 'date-fns/locale';
+// CAMBIOS EN LOS IMPORTS DE DATE-FNS:
+import * as dateFnsTz from 'date-fns-tz';
+import es from 'date-fns/locale/es'; // Importación más directa del locale
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -32,13 +32,12 @@ export default async function handler(req, res) {
     if (isCalendarQuery) {
       console.log('⏳ Detectada consulta de calendario');
 
-      // Las funciones de date-fns-tz y 'es' locale ya están disponibles globalmente en este módulo
-      // gracias a los imports estáticos de arriba.
-      const timeZone = 'America/Santiago'; // Zona horaria de Chile
+      const timeZone = 'America/Santiago';
 
       let targetDate = null;
       let targetTimeRange = { start: null, end: null };
-      const today = utcToZonedTime(new Date(), timeZone);
+      // USANDO dateFnsTz.utcToZonedTime
+      const today = dateFnsTz.utcToZonedTime(new Date(), timeZone);
 
       const dayKeywords = { 'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'miércoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6, 'sábado': 6 };
       let foundTargetDay = -1;
@@ -51,19 +50,20 @@ export default async function handler(req, res) {
       }
 
       if (foundTargetDay !== -1) {
-        let daysToAdd = foundTargetDay - getDay(today);
+        // USANDO dateFnsTz.getDay y dateFnsTz.addDays y dateFnsTz.startOfDay
+        let daysToAdd = foundTargetDay - dateFnsTz.getDay(today);
         if (daysToAdd < 0) daysToAdd += 7;
-        targetDate = startOfDay(addDays(today, daysToAdd));
-        console.log(`🗓️ Día objetivo detectado: ${format(targetDate, 'yyyy-MM-dd', { timeZone })}`);
+        targetDate = dateFnsTz.startOfDay(dateFnsTz.addDays(today, daysToAdd));
+        console.log(`🗓️ Día objetivo detectado: ${dateFnsTz.format(targetDate, 'yyyy-MM-dd', { timeZone })}`);
       } else if (lowerMessage.includes('hoy')) {
-         targetDate = startOfDay(today);
-         console.log(`🗓️ Día objetivo detectado: hoy (${format(targetDate, 'yyyy-MM-dd', { timeZone })})`);
+         targetDate = dateFnsTz.startOfDay(today);
+         console.log(`🗓️ Día objetivo detectado: hoy (${dateFnsTz.format(targetDate, 'yyyy-MM-dd', { timeZone })})`);
       } else if (lowerMessage.includes('mañana')) {
-         targetDate = startOfDay(addDays(today, 1));
-         console.log(`🗓️ Día objetivo detectado: mañana (${format(targetDate, 'yyyy-MM-dd', { timeZone })})`);
+         targetDate = dateFnsTz.startOfDay(dateFnsTz.addDays(today, 1));
+         console.log(`🗓️ Día objetivo detectado: mañana (${dateFnsTz.format(targetDate, 'yyyy-MM-dd', { timeZone })})`);
       }
 
-      if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) { // Evitar "pasado mañana"
+      if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) {
         targetTimeRange = { start: 9, end: 13 };
         console.log('⏰ Franja horaria: Mañana');
       } else if (lowerMessage.includes('tarde')) {
@@ -72,8 +72,9 @@ export default async function handler(req, res) {
       }
 
       const calendar = await getCalendarClient();
-      const queryStartTime = zonedTimeToUtc(startOfDay(today), timeZone);
-      const queryEndTime = zonedTimeToUtc(endOfDay(addDays(today, 7)), timeZone);
+      // USANDO dateFnsTz.zonedTimeToUtc, dateFnsTz.startOfDay, dateFnsTz.endOfDay, dateFnsTz.addDays
+      const queryStartTime = dateFnsTz.zonedTimeToUtc(dateFnsTz.startOfDay(today), timeZone);
+      const queryEndTime = dateFnsTz.zonedTimeToUtc(dateFnsTz.endOfDay(dateFnsTz.addDays(today, 7)), timeZone);
 
       const response = await calendar.events.list({
         calendarId: 'primary',
@@ -100,9 +101,11 @@ export default async function handler(req, res) {
       const nowUtc = new Date();
 
       for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
-        const currentDay = startOfDay(addDays(today, dayOffset));
+        // USANDO dateFnsTz.startOfDay, dateFnsTz.addDays
+        const currentDay = dateFnsTz.startOfDay(dateFnsTz.addDays(today, dayOffset));
 
-        if (targetDate && !isEqual(currentDay, targetDate)) {
+        // USANDO dateFnsTz.isEqual
+        if (targetDate && !dateFnsTz.isEqual(currentDay, targetDate)) {
           continue;
         }
 
@@ -113,19 +116,20 @@ export default async function handler(req, res) {
           if (targetTimeRange.start !== null && (hour < targetTimeRange.start || hour >= targetTimeRange.end)) {
             continue;
           }
-
-          const slotStartLocalStr = `${format(currentDay, 'yyyy-MM-dd')}T${time}:00`;
-          const slotStartUtc = zonedTimeToUtc(slotStartLocalStr, timeZone);
-          const slotEndUtc = addMinutes(slotStartUtc, 30);
+          // USANDO dateFnsTz.format, dateFnsTz.zonedTimeToUtc, dateFnsTz.addMinutes
+          const slotStartLocalStr = `${dateFnsTz.format(currentDay, 'yyyy-MM-dd')}T${time}:00`;
+          const slotStartUtc = dateFnsTz.zonedTimeToUtc(slotStartLocalStr, timeZone);
+          const slotEndUtc = dateFnsTz.addMinutes(slotStartUtc, 30);
 
           const isBusy = events.some(event => slotStartUtc < event.end && slotEndUtc > event.start);
           const isFuture = slotStartUtc > nowUtc;
 
           if (!isBusy && isFuture) {
-            const zonedSlotStart = utcToZonedTime(slotStartUtc, timeZone);
+            // USANDO dateFnsTz.utcToZonedTime, dateFnsTz.format
+            const zonedSlotStart = dateFnsTz.utcToZonedTime(slotStartUtc, timeZone);
             availableSlots.push({
                 date: zonedSlotStart,
-                formatted: format(zonedSlotStart, "EEEE d 'de' MMMM, HH:mm", { locale: es, timeZone })
+                formatted: dateFnsTz.format(zonedSlotStart, "EEEE d 'de' MMMM, HH:mm", { locale: es, timeZone })
             });
           }
         }
@@ -135,11 +139,12 @@ export default async function handler(req, res) {
       const MAX_SUGGESTIONS = 5;
 
       if (availableSlots.length > 0) {
-        availableSlots.sort((a, b) => a.date.getTime() - b.date.getTime()); // Asegurar orden cronológico
+        availableSlots.sort((a, b) => a.date.getTime() - b.date.getTime());
         const suggestions = availableSlots.slice(0, MAX_SUGGESTIONS).map(slot => `- ${slot.formatted}`);
         let intro = `📅 Encontré ${availableSlots.length === 1 ? 'esta hora disponible' : 'estas horas disponibles'}`;
         if (targetDate) {
-            intro += ` para el ${format(targetDate, "EEEE d 'de' MMMM", { locale: es, timeZone })}`;
+            // USANDO dateFnsTz.format
+            intro += ` para el ${dateFnsTz.format(targetDate, "EEEE d 'de' MMMM", { locale: es, timeZone })}`;
         }
         if (targetTimeRange.start !== null) {
              intro += (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) ? ' por la mañana' : lowerMessage.includes('tarde') ? ' por la tarde' : '';
@@ -152,7 +157,8 @@ export default async function handler(req, res) {
       } else {
         reply = `Lo siento, no encontré horas disponibles`;
          if (targetDate) {
-            reply += ` para el ${format(targetDate, "EEEE d 'de' MMMM", { locale: es, timeZone })}`;
+            // USANDO dateFnsTz.format
+            reply += ` para el ${dateFnsTz.format(targetDate, "EEEE d 'de' MMMM", { locale: es, timeZone })}`;
         }
         if (targetTimeRange.start !== null) {
              reply += (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) ? ' por la mañana' : lowerMessage.includes('tarde') ? ' por la tarde' : '';
@@ -164,7 +170,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ response: reply });
     }
 
-    // Si no es consulta de calendario, usar OpenAI
     console.log('💡 Consulta normal, usando OpenAI');
     const chatResponse = await openai.chat.completions.create({
       model: MODEL,
@@ -178,6 +183,11 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('❌ Error en Rigbot:', error);
-    return res.status(500).json({ error: 'Ocurrió un error en Rigbot.' });
+    // Modificado para devolver el mensaje de error real en la respuesta JSON si estamos en desarrollo
+    // En producción, quizás quieras un mensaje más genérico.
+    const errorMessage = process.env.NODE_ENV === 'development' ? error.message : 'Ocurrió un error en Rigbot.';
+    const errorStack = process.env.NODE_ENV === 'development' ? error.stack : undefined;
+    console.error(error.stack); // Asegurarse de que el stack trace se loguee en Vercel
+    return res.status(500).json({ error: errorMessage, stack: errorStack });
   }
 }
