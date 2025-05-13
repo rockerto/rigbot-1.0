@@ -1,15 +1,4 @@
-Primero, instala las dependencias:
-
-Bash
-
-npm install date-fns date-fns-tz
-# o si usas yarn:
-yarn add date-fns date-fns-tz
-Luego, reemplaza el bloque if dentro de tu try con esto:
-
-JavaScript
-
-    // --- INICIO BLOQUE MODIFICADO ---
+// --- INICIO BLOQUE MODIFICADO ---
     // Detectar si la pregunta es de horarios (mantenemos la detección simple por ahora)
     const lowerMessage = message.toLowerCase();
     const isCalendarQuery = lowerMessage.includes('hora') || lowerMessage.includes('turno') || lowerMessage.includes('disponibilidad') || lowerMessage.includes('agenda') || lowerMessage.includes('cuando');
