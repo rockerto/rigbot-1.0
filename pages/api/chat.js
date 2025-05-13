@@ -39,46 +39,45 @@ export default async function handler(req, res) {
         orderBy: 'startTime'
       });
 
-      const events = response.data.items
-        .filter(e => e.start.dateTime && e.end.dateTime)
-        .map(e => ({
-          start: new Date(e.start.dateTime),
-          end: new Date(e.end.dateTime)
-        }));
-
-      const WORKING_HOURS = [
-        '10:00', '10:30', '11:00', '11:30',
-        '12:00', '12:30', '13:00', '13:30',
-        '14:00', '14:30', '15:00', '15:30',
-        '16:00', '16:30', '17:00', '17:30',
-        '18:00', '18:30', '19:00', '19:30'
-      ];
-
-      const slots = [];
-      for (let day = 0; day <= 7; day++) {
-        const date = new Date();
-        date.setDate(date.getDate() + day);
-        const dateStr = date.toISOString().split('T')[0];
-        for (const time of WORKING_HOURS) {
-          const [hour, minute] = time.split(':');
-          const slotStart = new Date(dateStr + 'T' + time + ':00');
-          const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
-          const busy = events.some(event => slotStart < event.end && slotEnd > event.start);
-          if (!busy && slotStart > new Date()) {
-            slots.push(slotStart.toLocaleString('es-CL', {
-              hour: '2-digit',
-              minute: '2-digit',
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long'
-            }));
-          }
+      // Generar todos los bloques posibles de media hora
+      const blocks = [];
+      const blockStart = new Date(startTime);
+      blockStart.setHours(10, 0, 0, 0);
+      for (let d = 0; d <= 7; d++) {
+        for (let h = 10; h <= 19; h++) {
+          blocks.push(new Date(blockStart.getFullYear(), blockStart.getMonth(), blockStart.getDate() + d, h, 0));
+          blocks.push(new Date(blockStart.getFullYear(), blockStart.getMonth(), blockStart.getDate() + d, h, 30));
         }
       }
 
-      const reply = slots.length > 0 
-        ? `📅 Las franjas libres disponibles son:\n- ${slots.join('\n- ')}`
-        : 'No se encontraron franjas libres en los próximos 7 días.';
+      // Marcar ocupados
+      const busy = response.data.items
+        .filter(e => e.start.dateTime && e.end.dateTime)
+        .map(e => new Date(e.start.dateTime).getTime());
+
+      const available = blocks.filter(b => !busy.some(o => Math.abs(o - b.getTime()) < 30 * 60 * 1000));
+
+      let reply = '';
+      if (available.length === 0) {
+        reply = 'No se encontraron horas disponibles esta semana.';
+      } else {
+        // Si usuario pidió día específico
+        const dayRequested = lowerMessage.match(/lunes|martes|miércoles|jueves|viernes|sábado|domingo/);
+        let suggestions = [];
+        if (dayRequested) {
+          suggestions = available.filter(b => b.toLocaleDateString('es-CL', { weekday: 'long' }).toLowerCase() === dayRequested[0]);
+        } else {
+          suggestions = available;
+        }
+        suggestions = suggestions.slice(0, 3);
+        reply = `📅 Los horarios disponibles son:\n- ${suggestions.map(d => d.toLocaleString('es-CL', {
+          hour: '2-digit',
+          minute: '2-digit',
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long'
+        })).join('\n- ')}`;
+      }
 
       return res.status(200).json({ response: reply });
     }
