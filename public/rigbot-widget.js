@@ -1,11 +1,12 @@
 (() => {
-  const createBubble = () => {
-    const bubble = document.createElement('div');
-    bubble.id = 'rigbot-bubble';
-    bubble.style.cssText = `
+  const createBubbles = () => {
+    // Burbuja de Chat Rigbot
+    const chatBubble = document.createElement('div');
+    chatBubble.id = 'rigbot-bubble';
+    chatBubble.style.cssText = `
       position: fixed;
       bottom: 20px;
-      right: 100px;
+      right: 90px;
       width: 64px;
       height: 64px;
       background: #007bff;
@@ -17,18 +18,18 @@
       cursor: pointer;
       z-index: 9999;
     `;
-    bubble.innerHTML = `<span style="color: white; font-size: 32px;">💬</span>`;
-    document.body.appendChild(bubble);
-    bubble.addEventListener('click', openChatWindow);
+    chatBubble.innerHTML = `<span style="color: white; font-size: 32px;">💬</span>`;
+    document.body.appendChild(chatBubble);
+    chatBubble.addEventListener('click', openChatWindow);
 
-    // Botón flotante de WhatsApp
+    // Burbuja flotante de WhatsApp
     const whatsapp = document.createElement('a');
     whatsapp.href = `https://wa.me/+56989967350`;
     whatsapp.target = "_blank";
     whatsapp.style.cssText = `
       position: fixed;
       bottom: 20px;
-      left: 20px;
+      right: 20px;
       width: 64px;
       height: 64px;
       background: #25d366;
@@ -56,26 +57,26 @@
       right: 20px;
       width: 320px;
       height: 400px;
-      background: white;
+      background: #fff;
       border-radius: 12px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       display: flex;
       flex-direction: column;
       z-index: 9999;
       overflow: hidden;
+      border: 1px solid #ddd;
     `;
 
     container.innerHTML = `
-      <div style="padding: 8px; background: #007bff; color: white; font-weight: bold;">
+      <div style="padding: 10px; background: #007bff; color: white; font-weight: bold;">
         Rigbot 🤖
       </div>
-      <div id="rigbot-chat" style="flex: 1; padding: 10px; overflow-y: auto; font-family: sans-serif; font-size: 14px;"></div>
+      <div id="rigbot-chat" style="flex: 1; padding: 10px; overflow-y: auto; font-family: Arial, sans-serif; font-size: 14px; background: #f9f9f9;"></div>
       <div style="display: flex; border-top: 1px solid #ddd;">
-        <input type="text" id="rigbot-input" placeholder="Escribe algo..." style="flex: 1; border: none; padding: 10px;" />
-        <button id="rigbot-send" style="background: #007bff; color: white; border: none; padding: 10px;">Enviar</button>
+        <input type="text" id="rigbot-input" placeholder="Escribe algo..." style="flex: 1; border: none; padding: 10px; font-size: 14px;" />
+        <button id="rigbot-send" style="background: #007bff; color: white; border: none; padding: 10px 14px; font-size: 14px; cursor: pointer;">Enviar</button>
       </div>
     `;
-
     document.body.appendChild(container);
 
     document.getElementById('rigbot-send').addEventListener('click', sendMessage);
@@ -89,12 +90,13 @@
   const addMessage = (text, from = 'bot') => {
     const chat = document.getElementById('rigbot-chat');
     const bubble = document.createElement('div');
-    bubble.style.margin = '8px 0';
-    bubble.style.background = from === 'bot' ? '#f1f1f1' : '#dcf8c6';
-    bubble.style.alignSelf = from === 'bot' ? 'flex-start' : 'flex-end';
+    bubble.style.margin = '6px 0';
     bubble.style.padding = '8px 12px';
-    bubble.style.borderRadius = '8px';
+    bubble.style.borderRadius = '12px';
     bubble.style.maxWidth = '80%';
+    bubble.style.wordBreak = 'break-word';
+    bubble.style.background = from === 'bot' ? '#e6e6e6' : '#dcf8c6';
+    bubble.style.alignSelf = from === 'bot' ? 'flex-start' : 'flex-end';
     bubble.textContent = text;
     chat.appendChild(bubble);
     chat.scrollTop = chat.scrollHeight;
@@ -122,5 +124,5 @@
     }
   };
 
-  window.addEventListener('load', createBubble);
+  window.addEventListener('load', createBubbles);
 })();

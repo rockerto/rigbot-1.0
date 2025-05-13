@@ -4,7 +4,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const ASSISTANT_ID = 'g-681a328b9f748191a1dd2ac35c09a2f4'; // Tu GPT personalizado
+const ASSISTANT_ID = 'asst_xLjjNmtyUT5eu3YzjHZRBCdl'; // ID del assistant de OpenAI (no GPT personalizado)
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
