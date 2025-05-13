@@ -1,6 +1,9 @@
 (() => {
+  const backendUrl = window.NEXT_PUBLIC_RIGBOT_BACKEND_URL || 'https://rigbot-1-0.vercel.app/api/chat';
+
   const createBubbles = () => {
-    // Burbuja de Chat Rigbot
+    if (document.getElementById('rigbot-bubble')) return;
+
     const chatBubble = document.createElement('div');
     chatBubble.id = 'rigbot-bubble';
     chatBubble.style.cssText = `
@@ -22,7 +25,6 @@
     document.body.appendChild(chatBubble);
     chatBubble.addEventListener('click', openChatWindow);
 
-    // Burbuja flotante de WhatsApp
     const whatsapp = document.createElement('a');
     whatsapp.href = `https://wa.me/+56989967350`;
     whatsapp.target = "_blank";
@@ -89,6 +91,7 @@
 
   const addMessage = (text, from = 'bot') => {
     const chat = document.getElementById('rigbot-chat');
+    if (!chat) return;
     const bubble = document.createElement('div');
     bubble.style.margin = '6px 0';
     bubble.style.padding = '8px 12px';
@@ -104,22 +107,23 @@
 
   const sendMessage = async () => {
     const input = document.getElementById('rigbot-input');
-    const text = input.value.trim();
+    const text = input?.value.trim();
     if (!text) return;
     addMessage(text, 'user');
     input.value = '';
     try {
       addMessage('⏳ Un momento por favor...');
-      const response = await fetch('https://rigbot-1-0.vercel.app/api/chat', {
+      const response = await fetch(backendUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text })
       });
       const data = await response.json();
-      document.getElementById('rigbot-chat').lastChild.remove();
+      document.getElementById('rigbot-chat')?.lastChild.remove();
       addMessage(data.response || 'Lo siento, no entendí eso.');
     } catch (err) {
-      document.getElementById('rigbot-chat').lastChild.remove();
+      console.error('❌ Error en fetch Rigbot:', err);
+      document.getElementById('rigbot-chat')?.lastChild.remove();
       addMessage('❌ Ocurrió un error al conectarme con Rigbot.');
     }
   };
