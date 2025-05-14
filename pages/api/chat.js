@@ -8,21 +8,20 @@ const openai = new OpenAI({
 });
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+const CHILE_UTC_OFFSET_HOURS = -4; // Mayo en Chile es GMT-4 (CLT)
 
-const CHILE_UTC_OFFSET_HOURS = -4; 
-
-function convertChileTimeToUtc(dateObjectUtcDay, chileHour, chileMinute) {
+function convertChileTimeToUtc(baseDateUtcDay, chileHour, chileMinute) {
   let utcHour = chileHour - CHILE_UTC_OFFSET_HOURS;
-  const newUtcDate = new Date(dateObjectUtcDay);
+  const newUtcDate = new Date(baseDateUtcDay);
   newUtcDate.setUTCHours(utcHour, chileMinute, 0, 0);
   return newUtcDate;
 }
 
 function getDayIdentifier(dateObj, timeZone) {
-    return new Intl.DateTimeFormat('en-CA', {
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        timeZone: timeZone
-    }).format(dateObj);
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    timeZone: timeZone
+  }).format(dateObj);
 }
 
 export default async function handler(req, res) {
@@ -38,49 +37,56 @@ export default async function handler(req, res) {
 
   try {
     console.log('📨 Mensaje recibido:', message);
-
     const lowerMessage = message.toLowerCase();
     const isCalendarQuery = lowerMessage.includes('hora') || lowerMessage.includes('turno') || lowerMessage.includes('disponibilidad') || lowerMessage.includes('agenda') || lowerMessage.includes('cuando');
 
     if (isCalendarQuery) {
       console.log('⏳ Detectada consulta de calendario');
       const calendar = await getCalendarClient();
-      const serverNowUtc = new Date(); 
+      const serverNowUtc = new Date();
 
-      let targetDateForIntro = null; 
-      let targetHourChile = null; 
-      let targetMinuteChile = 0;  
-      let timeOfDay = null;     
+      let targetDateForDisplay = null; 
+      let targetHourChile = null;
+      let targetMinuteChile = 0;
+      let timeOfDay = null;
 
-      const todayInChileLocalStartOfDay = new Date(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', year: 'numeric', month: 'numeric', day: 'numeric' }).format(serverNowUtc));
-      todayInChileLocalStartOfDay.setHours(0,0,0,0);
+      const currentYearChile = parseInt(new Intl.DateTimeFormat('en-US', { year: 'numeric', timeZone: 'America/Santiago' }).format(serverNowUtc), 10);
+      const currentMonthChile = parseInt(new Intl.DateTimeFormat('en-US', { month: 'numeric', timeZone: 'America/Santiago' }).format(serverNowUtc), 10) -1; 
+      const currentDayOfMonthChile = parseInt(new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: 'America/Santiago' }).format(serverNowUtc), 10);
+      
+      const todayChile0000UtcTimestamp = Date.UTC(currentYearChile, currentMonthChile, currentDayOfMonthChile, 0 - CHILE_UTC_OFFSET_HOURS, 0, 0, 0);
+      const refDateForTarget = new Date(todayChile0000UtcTimestamp); 
+
+      const currentDayOfWeekInChile = new Date(Date.UTC(currentYearChile, currentMonthChile, currentDayOfMonthChile)).getUTCDay();
+
 
       if (lowerMessage.includes('hoy')) {
-        targetDateForIntro = new Date(todayInChileLocalStartOfDay);
+        targetDateForDisplay = new Date(refDateForTarget);
       } else if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) {
-        targetDateForIntro = new Date(todayInChileLocalStartOfDay);
-        targetDateForIntro.setDate(targetDateForIntro.getDate() + 1);
+        targetDateForDisplay = new Date(refDateForTarget);
+        targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + 1);
       } else {
         const dayKeywords = { 'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'miércoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6, 'sábado': 6 };
         for (const [keyword, dayIndex] of Object.entries(dayKeywords)) {
           if (lowerMessage.includes(keyword)) {
-            let tempDate = new Date(todayInChileLocalStartOfDay);
-            let currentDayIndex = tempDate.getDay();
-            let daysToAdd = dayIndex - currentDayIndex;
+            targetDateForDisplay = new Date(refDateForTarget);
+            let daysToAdd = dayIndex - currentDayOfWeekInChile;
             if (daysToAdd < 0 || (daysToAdd === 0 && serverNowUtc.getUTCHours() >= (19 - CHILE_UTC_OFFSET_HOURS))) {
-                daysToAdd += 7;
+              daysToAdd += 7;
             }
-            tempDate.setDate(tempDate.getDate() + daysToAdd);
-            targetDateForIntro = tempDate;
+            targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + daysToAdd);
             break;
           }
         }
       }
-      if(targetDateForIntro) console.log(`🗓️ Día objetivo para intro (Chile): ${targetDateForIntro.toLocaleDateString('es-CL')}`);
-      
-      const targetDateIdentifierChile = targetDateForIntro ? getDayIdentifier(targetDateForIntro, 'America/Santiago') : null;
-      if(targetDateIdentifierChile) console.log(`🗓️ Día objetivo ID (Chile): ${targetDateIdentifierChile}`);
 
+      if (targetDateForDisplay) {
+        console.log(`🎯 Fecha Objetivo (para mostrar): ${new Intl.DateTimeFormat('es-CL', { dateStyle: 'full', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} (UTC: ${targetDateForDisplay.toISOString()})`);
+      }
+      
+      const targetDateIdentifierForFilter = targetDateForDisplay ? getDayIdentifier(targetDateForDisplay, 'America/Santiago') : null;
+      if(targetDateIdentifierForFilter) console.log(`🏷️ Identificador de Fecha para Filtro (Chile YYYY-MM-DD): ${targetDateIdentifierForFilter}`);
+      
       const timeMatch = lowerMessage.match(/(\d{1,2})\s*(:(00|30))?\s*(pm|am|h|hr|hrs)?/i);
       if (timeMatch) {
         let hour = parseInt(timeMatch[1], 10);
@@ -93,20 +99,18 @@ export default async function handler(req, res) {
         targetHourChile = hour;
         console.log(`⏰ Hora objetivo (Chile): ${targetHourChile}:${targetMinuteChile.toString().padStart(2,'0')}`);
       }
-
       if (!targetHourChile) {
         if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) timeOfDay = 'morning';
         else if (lowerMessage.includes('tarde')) timeOfDay = 'afternoon';
         if(timeOfDay) console.log(`🕒 Franja horaria: ${timeOfDay}`);
       }
-      
       const WORKING_HOURS_CHILE_NUMERIC = [10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5];
       if (targetHourChile !== null) {
         const requestedTimeNumeric = targetHourChile + (targetMinuteChile / 60);
         if (!WORKING_HOURS_CHILE_NUMERIC.includes(requestedTimeNumeric) || requestedTimeNumeric < 10 || requestedTimeNumeric > 19.5) {
             let reply = `Lo siento, la hora ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')} está fuera de nuestro horario de atención (10:00 a 19:30).`;
-            if (targetDateForIntro) {
-                reply = `Lo siento, ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForIntro)} a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')} está fuera de nuestro horario de atención (10:00 a 19:30).`;
+            if (targetDateForDisplay) { 
+                reply = `Lo siento, ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')} está fuera de nuestro horario de atención (10:00 a 19:30).`;
             }
             return res.status(200).json({ response: reply });
         }
@@ -115,7 +119,6 @@ export default async function handler(req, res) {
       const calendarQueryStartUtc = new Date(serverNowUtc);
       const calendarQueryEndUtc = new Date(serverNowUtc);
       calendarQueryEndUtc.setDate(calendarQueryEndUtc.getDate() + 7);
-
       const googleResponse = await calendar.events.list({
         calendarId: 'primary',
         timeMin: calendarQueryStartUtc.toISOString(),
@@ -145,39 +148,33 @@ export default async function handler(req, res) {
       const availableSlotsOutput = [];
 
       for (let i = 0; i < 7; i++) {
-        const currentDayUtcStart = new Date(serverNowUtc);
-        currentDayUtcStart.setUTCDate(serverNowUtc.getUTCDate() + i);
-        currentDayUtcStart.setUTCHours(0, 0, 0, 0);
+        const currentDayProcessingUtcStart = new Date(serverNowUtc);
+        currentDayProcessingUtcStart.setUTCDate(serverNowUtc.getUTCDate() + i);
+        currentDayProcessingUtcStart.setUTCHours(0, 0, 0, 0);
 
-        if (targetDateIdentifierChile) {
-          if (getDayIdentifier(currentDayUtcStart, 'America/Santiago') !== targetDateIdentifierChile) {
+        if (targetDateIdentifierForFilter) {
+          if (getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago') !== targetDateIdentifierForFilter) {
+            // console.log(`⏭️ Saltando día ${getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago')} porque no es ${targetDateIdentifierForFilter}`);
             continue;
           }
+          // console.log(`✅ Procesando día ${getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago')} (coincide con ${targetDateIdentifierForFilter})`);
         }
         
         for (const timeChileStr of WORKING_HOURS_CHILE_STR) {
           const [hChile, mChile] = timeChileStr.split(':').map(Number);
-
           if (targetHourChile !== null) {
             if (hChile !== targetHourChile || mChile !== targetMinuteChile) continue;
           } else if (timeOfDay) {
             if (timeOfDay === 'morning' && (hChile < 10 || hChile >= 14)) continue;
             if (timeOfDay === 'afternoon' && (hChile < 14 || hChile > 19 || (hChile === 19 && mChile > 30))) continue;
           }
-
-          const slotStartUtc = convertChileTimeToUtc(currentDayUtcStart, hChile, mChile);
-          if (isNaN(slotStartUtc.getTime())) {
-            console.error("Slot UTC inválido generado:", currentDayUtcStart, hChile, mChile);
-            continue;
-          }
+          const slotStartUtc = convertChileTimeToUtc(currentDayProcessingUtcStart, hChile, mChile);
+          if (isNaN(slotStartUtc.getTime())) { console.error("Slot UTC inválido:", currentDayProcessingUtcStart, hChile, mChile); continue; }
           if (slotStartUtc < serverNowUtc) continue;
-
           const slotEndUtc = new Date(slotStartUtc);
           slotEndUtc.setUTCMinutes(slotEndUtc.getUTCMinutes() + 30);
-
           const isBusy = busySlots.some(busy => slotStartUtc.getTime() < busy.end && slotEndUtc.getTime() > busy.start);
-
-          if (!isBusy) {
+          if (!isBusy) { 
             availableSlotsOutput.push(
               new Intl.DateTimeFormat('es-CL', {
                 weekday: 'long', day: 'numeric', month: 'long',
@@ -187,6 +184,7 @@ export default async function handler(req, res) {
           }
         }
       }
+      if(targetDateIdentifierForFilter) console.log(`🔎 Slots encontrados para ${targetDateIdentifierForFilter}: ${availableSlotsOutput.length}`);
       
       let reply = '';
       const MAX_SUGGESTIONS = 5;
@@ -196,15 +194,15 @@ export default async function handler(req, res) {
           reply = `¡Sí! El ${availableSlotsOutput[0]} está disponible. Te recomiendo contactar directamente para confirmar y reservar.`;
         } else {
           let specificTimeQuery = "";
-          if(targetDateForIntro) specificTimeQuery += `${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForIntro)} `;
+          if(targetDateForDisplay) specificTimeQuery += `${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} `;
           specificTimeQuery += `a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`;
           reply = `Lo siento, ${specificTimeQuery} no se encuentra disponible. ¿Te gustaría buscar otro horario?`;
         }
       } else if (availableSlotsOutput.length > 0) {
         let intro = `📅 Estas son algunas horas disponibles`;
-        if (targetDateForIntro) {
-            intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForIntro)}`;
-        } else if (availableSlotsOutput.length > 0) {
+        if (targetDateForDisplay) {
+            intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}`;
+        } else { 
              intro += ` en los próximos días`;
         }
         if (timeOfDay === 'morning') intro += ' por la mañana';
@@ -216,21 +214,19 @@ export default async function handler(req, res) {
         }
       } else {
         reply = 'No se encontraron horas disponibles';
-        if (targetDateForIntro) {
-            reply += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForIntro)}`;
+        if (targetDateForDisplay) {
+            reply += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}`;
         }
         if (timeOfDay === 'morning') reply += ' por la mañana';
         if (timeOfDay === 'afternoon') reply += ' por la tarde';
-        if (targetHourChile !== null && !targetDateForIntro) reply += ` a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`
-
-        if (targetDateForIntro || timeOfDay || targetHourChile) {
+        if (targetHourChile !== null && !targetDateForDisplay) reply += ` a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`
+        if (targetDateForDisplay || timeOfDay || targetHourChile) {
              reply += '.';
         } else {
             reply += ' en los próximos 7 días.';
         }
         reply += ' ¿Te gustaría probar con otra búsqueda?';
       }
-
       console.log('✅ Respuesta generada:', reply);
       return res.status(200).json({ response: reply });
     } // Fin if (isCalendarQuery)
@@ -238,8 +234,7 @@ export default async function handler(req, res) {
     // --- Si no es consulta de calendario, usar OpenAI ---
     console.log('💡 Consulta normal, usando OpenAI');
 
-    // ***** PUNTO DE CORRECCIÓN *****
-    // El systemPrompt se define ANTES de la llamada a la API de OpenAI
+    // Define systemPrompt ANTES de la llamada a la API de OpenAI
     const systemPrompt = process.env.RIGBOT_PROMPT || 
 `Eres Rigbot, el asistente virtual de la consulta quiropráctica Rigquiropráctico, atendido por el quiropráctico Roberto Ibacache en Copiapó, Chile.
 Tu rol es entregar información clara, profesional, cálida y empática a quienes consultan por servicios quiroprácticos, y sugerir horarios disponibles usando el calendario conectado.
@@ -285,15 +280,20 @@ Pack 10 sesiones: $300.000
 Los packs pueden ser compartidos entre personas distintas si se pagan en un solo abono.
 
 DIRECCIÓN
-Solo entregar si el paciente ya sabe que debe pagar y lo pide:
-Centro de Salud Fleming, Van Buren 129, Copiapó
-Ubicación en Google Maps.
+Atendemos en Copiapó, en el Centro de Salud Fleming, Van Buren 129.
+Si quieres más información o agendar, escribe directamente al WhatsApp 👉 +56 9 8996 7350
+
 
 ¿QUÉ ES LA QUIROPRAXIA?
 Si el paciente lo pregunta, comparte este video:
 https://youtu.be/EdEZyZUDAw0
 
 ESTILO DE COMUNICACIÓN
+Usa un estilo conversacional cálido, informal pero profesional. 
+No repitas siempre la misma estructura. Varía tus respuestas. 
+Si un usuario es simpático o usa humor, puedes ser un poco más cercano. 
+Nunca seas frío ni robótico. Siempre busca generar una experiencia amable y humana.
+
 Usa siempre un lenguaje amable, claro, empático, cálido y confiable.
 Eres un asistente experto y servicial, pero nunca frío ni robótico.`;
 
@@ -301,7 +301,7 @@ Eres un asistente experto y servicial, pero nunca frío ni robótico.`;
     const chatResponse = await openai.chat.completions.create({
       model: MODEL,
       messages: [
-        { role: 'system', content: systemPrompt }, // Usamos la variable aquí
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ]
     });
