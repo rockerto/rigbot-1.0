@@ -132,10 +132,11 @@ export default async function handler(req, res) {
       if (targetHourChile !== null) {
         const requestedTimeNumeric = targetHourChile + (targetMinuteChile / 60);
         if (!WORKING_HOURS_CHILE_NUMERIC.includes(requestedTimeNumeric) || requestedTimeNumeric < 10 || requestedTimeNumeric > 19.5) {
-            let reply = `Lo siento, la hora ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')} está fuera de nuestro horario de atención (10:00 a 19:30).`;
+            let reply = `¡Ojo! 👀 Parece que las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`;
             if (targetDateForDisplay) { 
-                reply = `Lo siento, ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')} está fuera de nuestro horario de atención (10:00 a 19:30).`;
+                reply = `¡Ojo! 👀 Parece que el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`;
             }
+            reply += ` está fuera de nuestro horario de atención (que es de 10:00 a 19:30). ¿Te gustaría buscar dentro de ese rango?`;
             console.log('✅ Respuesta generada (fuera de horario):', reply);
             return res.status(200).json({ response: reply });
         }
@@ -178,14 +179,12 @@ export default async function handler(req, res) {
           return null;
         }).filter(Boolean);
       console.log(`Found ${busySlots.length} busy slots from Google Calendar.`);
-      // ***** LOG AÑADIDO PARA DEPURAR BUSY SLOTS *****
       if (busySlots.length > 0) {
         console.log("DEBUG: Contenido de busySlots (eventos UTC de Google Calendar):");
         busySlots.forEach((bs, index) => {
           console.log(`  BusySlot ${index}: Start: ${new Date(bs.start).toISOString()}, End: ${new Date(bs.end).toISOString()}`);
         });
       }
-      // ***** FIN DEL LOG AÑADIDO *****
 
       const WORKING_HOURS_CHILE_STR = [
         '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
@@ -274,15 +273,18 @@ export default async function handler(req, res) {
 
       if (targetHourChile !== null) { 
         if (availableSlotsOutput.length > 0) {
-          reply = `¡Sí! ${availableSlotsOutput[0]} está disponible. Te recomiendo contactar directamente para confirmar y reservar.`;
+          // ***** TEXTO MEJORADO *****
+          reply = `¡Excelente! 🎉 Justo el ${availableSlotsOutput[0]} está libre para ti. ¡Qué buena suerte! Para asegurar tu cita, contáctanos directamente y la reservamos. 😉`;
         } else {
           let specificTimeQuery = "";
           if(targetDateForDisplay) specificTimeQuery += `${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} `;
           specificTimeQuery += `a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}`;
-          reply = `Lo siento, ${specificTimeQuery} no se encuentra disponible. ¿Te gustaría buscar otro horario?`;
+          // ***** TEXTO MEJORADO *****
+          reply = `¡Uy! Justo a las ${targetHourChile.toString().padStart(2,'0')}:${targetMinuteChile.toString().padStart(2,'0')}${targetDateForDisplay ? ` del ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}` : ''} ya no me quedan espacios. 😕 ¿Te gustaría que revise otro horario o quizás otro día?`;
         }
       } else if (availableSlotsOutput.length > 0) { 
-        let intro = `📅 Estas son algunas horas disponibles`;
+        // ***** TEXTO MEJORADO *****
+        let intro = `¡Buenas noticias! 🎉 Encontré estas horitas disponibles`;
         if (targetDateForDisplay) {
             intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}`;
         } else if (isNextWeekQuery) {
@@ -292,7 +294,7 @@ export default async function handler(req, res) {
         }
         if (timeOfDay === 'morning') intro += ' por la mañana';
         if (timeOfDay === 'afternoon') intro += ' por la tarde';
-        intro += ':';
+        intro += '. ¡A ver si alguna te acomoda! 🥳:';
 
         let finalSuggestions = [];
         if (!targetDateIdentifierForSlotFilter && !targetHourChile) { 
@@ -325,11 +327,12 @@ export default async function handler(req, res) {
         if (availableSlotsOutput.length > finalSuggestions.length) {
            const remaining = availableSlotsOutput.length - finalSuggestions.length;
            if (remaining > 0) {
-             reply += `\n\n(Y ${remaining} más...)`;
+             reply += `\n\n(Y ${remaining} más... ¡para que tengas de dónde elegir! 😉)`;
            }
         }
       } else { 
-        reply = 'No se encontraron horas disponibles';
+        // ***** TEXTO MEJORADO *****
+        reply = '¡Pucha! 😔 Parece que no tengo horas libres';
         if (targetDateForDisplay) {
             reply += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}`;
         } else if (isNextWeekQuery) {
@@ -344,7 +347,7 @@ export default async function handler(req, res) {
         } else { 
             reply += ' en los próximos 7 días.';
         }
-        reply += ' ¿Te gustaría probar con otra búsqueda?';
+        reply += ' ¿Te animas a que busquemos en otra fecha u horario? ¡Seguro encontramos algo! 👍';
       }
       console.log('✅ Respuesta generada:', reply);
       return res.status(200).json({ response: reply });
