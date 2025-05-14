@@ -10,7 +10,8 @@ const openai = new OpenAI({
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const CHILE_UTC_OFFSET_HOURS = -4; 
 const MAX_SUGGESTIONS = 5; 
-const DAYS_TO_QUERY_CALENDAR = 7; // Límite de días que el bot consultará y sobre los que informará
+const DAYS_TO_QUERY_CALENDAR = 7; 
+const MAX_DAYS_FOR_USER_REQUEST = 21; 
 
 function convertChileTimeToUtc(baseDateUtcDay, chileHour, chileMinute) {
   let utcHour = chileHour - CHILE_UTC_OFFSET_HOURS;
@@ -41,18 +42,25 @@ export default async function handler(req, res) {
     console.log('📨 Mensaje recibido:', message);
     const lowerMessage = message.toLowerCase();
 
+    // ***** CALENDAR KEYWORDS ACTUALIZADAS *****
     const calendarKeywords = [
       'hora', 'turno', 'disponibilidad', 'agenda', 'cuando', 'horario', 
       'disponible', 'libre', 'atiendes', 'ver', 'revisar', 'chequear', 'consultar',
       'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo',
-      'hoy', 'mañana', 'tarde', 'a las', 'para el', 'tienes algo', 'hay espacio', 
-      'agendar', 'agendamiento', 
-      'proxima semana', 'próxima semana', 'prixima semana', 
-      'proximo', 'próximo', 'priximo'
+      'hoy', 'mañana', 
+      'tarde', 
+      'a las', 
+      'para el', 
+      'tienes algo', 
+      'hay espacio', 
+      'agendar', 'agendamiento',
+      'proxima semana', 'próxima semana', 'prixima semana', 'procsima semana', 'proxima semama', // Variaciones de "próxima semana"
+      'proximo', 'próximo', 'priximo', 'procsimo' // Variaciones de "próximo"
     ];
     const isCalendarQuery = calendarKeywords.some(keyword => lowerMessage.includes(keyword));
+    // ***** FIN CALENDAR KEYWORDS ACTUALIZADAS *****
 
-    const scheduleFooterMessage = `\n\nRecuerda que puedo revisar horarios para los próximos ${DAYS_TO_QUERY_CALENDAR} días aproximadamente. Para fechas más lejanas o cualquier otra duda, ¡escríbenos por WhatsApp al 👉 +56 9 8996 7350 y te ayudamos con más detalle! 😊`;
+    const scheduleFooterMessage = `\n\nRecuerda que puedo revisar horarios para los próximos ${DAYS_TO_QUERY_CALENDAR} días aproximadamente desde la fecha que me indiques. Para fechas más lejanas o cualquier otra duda, ¡escríbenos por WhatsApp al 👉 +56 9 8996 7350 y te ayudamos con más detalle! 😊`;
 
     if (isCalendarQuery) {
       console.log('⏳ Detectada consulta de calendario');
@@ -72,60 +80,79 @@ export default async function handler(req, res) {
       const refDateForTargetCalc = new Date(todayChile0000UtcTimestamp);
       const actualCurrentDayOfWeekInChile = refDateForTargetCalc.getUTCDay();
       
-      const isProximoQuery = lowerMessage.includes('proximo') || lowerMessage.includes('próximo') || lowerMessage.includes('priximo');
-      const isAnyNextWeekIndicator = lowerMessage.includes('proxima semana') || lowerMessage.includes('próxima semana') || lowerMessage.includes('prixima semana');
+      const isProximoQuery = lowerMessage.includes('proximo') || lowerMessage.includes('próximo') || lowerMessage.includes('priximo') || lowerMessage.includes('procsimo');
+      const isAnyNextWeekIndicator = lowerMessage.includes('proxima semana') || lowerMessage.includes('próxima semana') || lowerMessage.includes('prixima semana') || lowerMessage.includes('procsima semana') || lowerMessage.includes('proxima semama');
 
       let specificDayKeywordIndex = -1;
-      const dayKeywords = [ /* ... (igual que antes) ... */ ];
-      for (const dayInfo of dayKeywords) { /* ... (igual que antes) ... */ }
+      const dayKeywordsList = [ 
+        { keyword: 'domingo', index: 0 }, { keyword: 'lunes', index: 1 }, 
+        { keyword: 'martes', index: 2 }, { keyword: 'miercoles', index: 3 }, 
+        { keyword: 'miércoles', index: 3 }, { keyword: 'jueves', index: 4 }, 
+        { keyword: 'viernes', index: 5 }, { keyword: 'sabado', index: 6 }, { keyword: 'sábado', index: 6 }
+      ];
 
-      // --- LÓGICA DE FECHA OBJETIVO SIMPLIFICADA ---
-      if (specificDayKeywordIndex !== -1) { // Se mencionó un día de la semana
-        targetDateForDisplay = new Date(refDateForTargetCalc);
-        let daysToAdd = specificDayKeywordIndex - actualCurrentDayOfWeekInChile;
-        if (daysToAdd < 0 || (daysToAdd === 0 && isProximoQuery)) {
-          daysToAdd += 7;
+      for (const dayInfo of dayKeywordsList) {
+        if (lowerMessage.includes(dayInfo.keyword)) {
+          specificDayKeywordIndex = dayInfo.index;
+          break;
         }
-        // Si se mencionó "próxima semana" Y el día calculado está en esta semana, lo movemos a la próxima.
-        if (isAnyNextWeekIndicator && daysToAdd < 7) {
-            daysToAdd += 7;
-        }
-        targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + daysToAdd);
-      } else if (isAnyNextWeekIndicator) { // "próxima semana" genérico
-          targetDateForDisplay = new Date(refDateForTargetCalc);
-          let daysUntilNextMonday = (1 - actualCurrentDayOfWeekInChile + 7) % 7;
-          if (daysUntilNextMonday === 0) daysUntilNextMonday = 7; 
-          targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + daysUntilNextMonday); 
-      } else if (lowerMessage.includes('hoy')) {
+      }
+      
+      // ***** LÓGICA DE FECHA OBJETIVO REFINADA *****
+      if (lowerMessage.includes('hoy')) {
         targetDateForDisplay = new Date(refDateForTargetCalc);
       } else if (lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) {
         targetDateForDisplay = new Date(refDateForTargetCalc);
         targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + 1);
+      } else if (specificDayKeywordIndex !== -1) { // Si se mencionó un día de la semana
+        targetDateForDisplay = new Date(refDateForTargetCalc); // Partir de hoy (Chile 00:00 UTC equiv)
+        let daysToAdd = specificDayKeywordIndex - actualCurrentDayOfWeekInChile;
+
+        if (daysToAdd < 0) { 
+          daysToAdd += 7; 
+        }
+        
+        // Si se pide explícitamente "próxima semana" Y el día calculado aún está en esta semana (daysToAdd < 7),
+        // O si se pide "próximo [día de hoy]" (daysToAdd === 0 && isProximoQuery)
+        // entonces forzar el salto a la semana siguiente.
+        if ((isAnyNextWeekIndicator && daysToAdd < 7) || (daysToAdd === 0 && isProximoQuery)) {
+          daysToAdd += 7;
+        } else if (daysToAdd === 0 && !isProximoQuery && serverNowUtc.getUTCHours() >= (19 - CHILE_UTC_OFFSET_HOURS)) {
+          // Si es hoy, no se pidió "próximo", y ya es tarde para ese día, ir a la próxima semana.
+          daysToAdd += 7;
+        }
+        targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + daysToAdd);
+      } else if (isAnyNextWeekIndicator) { // "próxima semana" genérico, sin día específico
+          targetDateForDisplay = new Date(refDateForTargetCalc);
+          let daysUntilNextMonday = (1 - actualCurrentDayOfWeekInChile + 7) % 7;
+          if (daysUntilNextMonday === 0) daysUntilNextMonday = 7; 
+          targetDateForDisplay.setUTCDate(targetDateForDisplay.getUTCDate() + daysUntilNextMonday); 
       }
       // Si targetDateForDisplay sigue null, la búsqueda será genérica desde hoy.
-      // --- FIN LÓGICA DE FECHA OBJETIVO SIMPLIFICADA ---
+      // ***** FIN LÓGICA DE FECHA OBJETIVO REFINADA *****
 
 
       if (targetDateForDisplay) {
         console.log(`🎯 Fecha Objetivo (para mostrar y filtrar): ${new Intl.DateTimeFormat('es-CL', { dateStyle: 'full', timeZone: 'America/Santiago' }).format(targetDateForDisplay)} (UTC: ${targetDateForDisplay.toISOString()})`);
-        // Chequeo si la fecha objetivo está más allá de nuestro rango de búsqueda explícito
-        const maxSearchDate = new Date(refDateForTargetCalc); // Hoy 00:00 Chile
-        maxSearchDate.setUTCDate(maxSearchDate.getUTCDate() + DAYS_TO_QUERY_CALENDAR + 7); // Un margen extra por si pide "prox sem"
-        if (targetDateForDisplay > maxSearchDate) {
-            let reply = `¡Vaya! Parece que buscas una fecha un poco lejana. `;
-            console.log('✅ Respuesta generada (fecha demasiado lejana para búsqueda activa):', reply);
+        const futureLimitCheckDate = new Date(refDateForTargetCalc); // Comparamos desde el inicio del día de hoy en Chile
+        futureLimitCheckDate.setUTCDate(futureLimitCheckDate.getUTCDate() + MAX_DAYS_FOR_USER_REQUEST);
+
+        if (targetDateForDisplay >= futureLimitCheckDate) {
+            const formattedDateAsked = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay);
+            let reply = `¡Entiendo que buscas para el ${formattedDateAsked}! 😊 Por ahora, mi calendario mental llega hasta unos ${MAX_DAYS_FOR_USER_REQUEST} días en el futuro (aprox. ${Math.floor(MAX_DAYS_FOR_USER_REQUEST / 7)} semanas).`;
+            console.log('✅ Respuesta generada (fecha demasiado lejana):', reply);
+            // No retornamos aquí, dejamos que la búsqueda proceda y si no encuentra nada, el footer se añade abajo.
+            // O mejor, sí retornamos para ser explícitos.
             return res.status(200).json({ response: reply + scheduleFooterMessage });
         }
       }
       
       const targetDateIdentifierForSlotFilter = targetDateForDisplay ? getDayIdentifier(targetDateForDisplay, 'America/Santiago') : null;
-      // ... (El resto del código desde aquí hasta el final del try...catch es el mismo que en la respuesta #32,
-      //      que es la versión que te funcionó bien para los casos base y generó los logs correctos
-      //      de "Slots encontrados" para el jueves y viernes).
-      //      Me aseguraré de incluir esa lógica probada.
-      //      La única diferencia será que `iterationDays` ahora usará `DAYS_TO_QUERY_CALENDAR`.
-
-      // COMIENZO DE LA LÓGICA QUE SE MANTIENE (con pequeños ajustes para DAYS_TO_QUERY_CALENDAR)
+      // ... (El resto del código se mantiene igual que en la respuesta #44, que generó los logs correctos para Jueves y Viernes)
+      // ... Copia desde aquí (línea de "if(targetDateIdentifierForSlotFilter) console.log(...)")
+      // ... hasta el final del bloque "if (isCalendarQuery)" de la respuesta #44.
+      // ... La parte de OpenAI y el catch final también se mantienen.
+      // INICIO DE LA LÓGICA QUE SE MANTIENE (DE RESPUESTA #44)
       if(targetDateIdentifierForSlotFilter) console.log(`🏷️ Identificador de Fecha para Filtro de Slots (Chile YAML-MM-DD): ${targetDateIdentifierForSlotFilter}`);
       
       const timeMatch = lowerMessage.match(/(\d{1,2})\s*(:(00|30|15|45))?\s*(pm|am|h|hr|hrs)?/i);
@@ -170,11 +197,10 @@ export default async function handler(req, res) {
       if (targetDateForDisplay) { 
           calendarQueryStartUtc = new Date(targetDateForDisplay.getTime());
       } else { 
-          calendarQueryStartUtc = new Date(refDateForTargetCalc.getTime());
+          calendarQueryStartUtc = new Date(refDateForTargetCalc.getTime()); 
       }
       
       const calendarQueryEndUtc = new Date(calendarQueryStartUtc);
-      // La query a Google siempre será por DAYS_TO_QUERY_CALENDAR desde el inicio de la búsqueda.
       calendarQueryEndUtc.setUTCDate(calendarQueryStartUtc.getUTCDate() + DAYS_TO_QUERY_CALENDAR); 
       
       console.log(`🗓️ Google Calendar Query: De ${calendarQueryStartUtc.toISOString()} a ${calendarQueryEndUtc.toISOString()}`);
@@ -205,7 +231,6 @@ export default async function handler(req, res) {
         busySlots.forEach((bs, index) => {
           const eventStartDate = new Date(bs.start);
           const eventEndDate = new Date(bs.end);
-          // Loguear solo si el evento se solapa con el rango de la consulta real
           if (eventEndDate > calendarQueryStartUtc && eventStartDate < calendarQueryEndUtc) {
             console.log(`  BusySlot ${index}: Start: ${eventStartDate.toISOString()}, End: ${eventEndDate.toISOString()}`);
           }
@@ -227,26 +252,18 @@ export default async function handler(req, res) {
           baseIterationDateDayUtcStart = new Date(refDateForTargetCalc);
       }
 
-      for (let i = 0; i < DAYS_TO_QUERY_CALENDAR; i++) { // Iterar solo los días definidos
+      for (let i = 0; i < DAYS_TO_QUERY_CALENDAR; i++) { 
         const currentDayProcessingUtcStart = new Date(baseIterationDateDayUtcStart);
         currentDayProcessingUtcStart.setUTCDate(baseIterationDateDayUtcStart.getUTCDate() + i);
         
-        // Si estamos en una búsqueda específica de día y ya pasamos ese día, no tiene sentido seguir iterando.
-        if (targetDateIdentifierForSlotFilter && getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago') > targetDateIdentifierForSlotFilter) {
-            break;
-        }
-
         for (const timeChileStr of WORKING_HOURS_CHILE_STR) {
           const [hChile, mChile] = timeChileStr.split(':').map(Number);
 
           if (targetHourChile !== null) {
             if (hChile !== targetHourChile || mChile !== targetMinuteChile) continue;
-          } else if (timeOfDay ) { 
-            // Aplicar franja horaria solo si no es una consulta genérica de "próxima semana" sin día
-            if (!(isAnyNextWeekIndicator && !targetDateIdentifierForSlotFilter)){
-                if (timeOfDay === 'morning' && (hChile < 10 || hChile >= 14)) continue;
-                if (timeOfDay === 'afternoon' && (hChile < 14 || hChile > 19 || (hChile === 19 && mChile > 30))) continue;
-            }
+          } else if (timeOfDay && !(isAnyNextWeekIndicator && !targetDateIdentifierForSlotFilter && !isProximoQuery) ) { 
+            if (timeOfDay === 'morning' && (hChile < 10 || hChile >= 14)) continue;
+            if (timeOfDay === 'afternoon' && (hChile < 14 || hChile > 19 || (hChile === 19 && mChile > 30))) continue;
           }
 
           const slotStartUtc = convertChileTimeToUtc(currentDayProcessingUtcStart, hChile, mChile);
@@ -312,12 +329,12 @@ export default async function handler(req, res) {
         }
       } else if (availableSlotsOutput.length > 0) { 
         let intro = `¡Buenas noticias! 🎉 Encontré estas horitas disponibles`;
-        if (targetDateForDisplay) { // Si se determinó un día específico (hoy, mañana, viernes, lunes prox)
+        if (targetDateForDisplay) {
             intro += ` para el ${new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago' }).format(targetDateForDisplay)}`;
-        } else if (isAnyNextWeekIndicator) { // Si se pidió "próxima semana" y targetDateForDisplay no se fijó (debería haberse fijado a Lunes)
-            intro += ` para la próxima semana`; // Fallback
+        } else if (isAnyNextWeekIndicator) { 
+            intro += ` para la próxima semana`;
         } else { 
-             intro += ` en los próximos días`; // Búsqueda general sin fecha
+             intro += ` en los próximos días`;
         }
         if (timeOfDay === 'morning') intro += ' por la mañana';
         if (timeOfDay === 'afternoon') intro += ' por la tarde';
@@ -349,7 +366,7 @@ export default async function handler(req, res) {
 
         reply = `${intro}\n- ${finalSuggestions.join('\n- ')}`;
         
-        if (availableSlotsOutput.length > finalSuggestions.length && finalSuggestions.length > 0) { // Mostrar solo si se mostraron algunas sugerencias
+        if (availableSlotsOutput.length > finalSuggestions.length && finalSuggestions.length > 0) { 
            const remaining = availableSlotsOutput.length - finalSuggestions.length;
            if (remaining > 0) {
              reply += `\n\n(Y ${remaining} más... ¡para que tengas de dónde elegir! 😉)`;
@@ -374,10 +391,11 @@ export default async function handler(req, res) {
         reply += ' ¿Te animas a que busquemos en otra fecha u horario? ¡Seguro encontramos algo! 👍';
       }
       
-      reply += scheduleFooterMessage; // Añadir siempre el pie de página
+      reply += scheduleFooterMessage; 
 
       console.log('✅ Respuesta generada:', reply);
       return res.status(200).json({ response: reply });
+      // FIN DE LA LÓGICA DE CALENDARIO
     } 
 
     // --- Si no es consulta de calendario, usar OpenAI ---
