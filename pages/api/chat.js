@@ -38,7 +38,23 @@ export default async function handler(req, res) {
   try {
     console.log('📨 Mensaje recibido:', message);
     const lowerMessage = message.toLowerCase();
-    const isCalendarQuery = lowerMessage.includes('hora') || lowerMessage.includes('turno') || lowerMessage.includes('disponibilidad') || lowerMessage.includes('agenda') || lowerMessage.includes('cuando') || lowerMessage.includes('horario');
+
+    // ***** isCalendarQuery MEJORADO *****
+    const calendarKeywords = [
+      'hora', 'turno', 'disponibilidad', 'agenda', 'cuando', 'horario', 
+      'disponible', 'libre', 'atiendes', 'ver', 'revisar', 'chequear', 'consultar',
+      'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo',
+      'hoy', 'mañana', // 'mañana' también se maneja en la extracción de fecha
+      'tarde', // 'mañana' (morning) se maneja en la extracción de franja si se pide 'mañana' como día
+      'a las', // "a las 10", "a las tres"
+      'para el', // "para el lunes", "para el viernes"
+      'tienes algo', // "tienes algo para el viernes"
+      'hay espacio', // "hay espacio el lunes"
+      ' agendar', ' agendamiento' // con espacio por si va al final de la frase
+    ];
+    const isCalendarQuery = calendarKeywords.some(keyword => lowerMessage.includes(keyword));
+    // ***** FIN isCalendarQuery MEJORADO *****
+
 
     if (isCalendarQuery) {
       console.log('⏳ Detectada consulta de calendario');
@@ -89,7 +105,7 @@ export default async function handler(req, res) {
       }
       
       const targetDateIdentifierForSlotFilter = targetDateForDisplay ? getDayIdentifier(targetDateForDisplay, 'America/Santiago') : null;
-      if(targetDateIdentifierForSlotFilter) console.log(`🏷️ Identificador de Fecha para Filtro de Slots (Chile<y_bin_46>-MM-DD): ${targetDateIdentifierForSlotFilter}`);
+      if(targetDateIdentifierForSlotFilter) console.log(`🏷️ Identificador de Fecha para Filtro de Slots (Chile YAML-MM-DD): ${targetDateIdentifierForSlotFilter}`);
       
       const timeMatch = lowerMessage.match(/(\d{1,2})\s*(:(00|30|15|45))?\s*(pm|am|h|hr|hrs)?/i);
       if (timeMatch) {
@@ -99,14 +115,21 @@ export default async function handler(req, res) {
         const isAm = timeMatch[4] && timeMatch[4].toLowerCase() === 'am';
         if (isPm && hour >= 1 && hour <= 11) hour += 12;
         if (isAm && hour === 12) hour = 0; 
+        // Se quitó la heurística agresiva de sumar 12 a horas ambiguas 1-7
         targetHourChile = hour;
         if (targetMinuteChile > 0 && targetMinuteChile < 30) targetMinuteChile = 0;
         else if (targetMinuteChile > 30 && targetMinuteChile < 60) targetMinuteChile = 30;
         console.log(`⏰ Hora objetivo (Chile): ${targetHourChile}:${targetMinuteChile.toString().padStart(2,'0')}`);
       }
       if (!targetHourChile && !isNextWeekQuery) { 
-        if ((lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) && !targetHourChile) timeOfDay = 'morning';
-        else if (lowerMessage.includes('tarde') && !targetHourChile) timeOfDay = 'afternoon';
+        if ((lowerMessage.includes('mañana') && !lowerMessage.includes('pasado mañana')) && !targetHourChile) {
+            // Solo considerar "mañana" como franja si targetDateForDisplay ES mañana, para evitar confusión.
+             if (targetDateForDisplay && getDayIdentifier(targetDateForDisplay, 'America/Santiago') === getDayIdentifier(new Date(refDateForTargetCalc.getTime() + 24*60*60*1000), 'America/Santiago')) {
+                timeOfDay = 'morning';
+             }
+        } else if (lowerMessage.includes('tarde') && !targetHourChile) {
+            timeOfDay = 'afternoon';
+        }
         if(timeOfDay) console.log(`🕒 Franja horaria: ${timeOfDay}`);
       }
       
@@ -127,9 +150,19 @@ export default async function handler(req, res) {
       if (isNextWeekQuery && targetDateForDisplay) {
           calendarQueryStartUtc.setTime(targetDateForDisplay.getTime()); 
           console.log(`🗓️ Query de Google Calendar ajustado para próxima semana, desde: ${calendarQueryStartUtc.toISOString()}`);
+      } else if (targetDateForDisplay) {
+          // Si se busca un día específico, empezar la query de Google Calendar desde el inicio de ese día en UTC
+          // para asegurar que se capturan todos los eventos de ese día de Chile.
+          const targetDateStartUtc = new Date(targetDateForDisplay); // targetDateForDisplay ya es 00:00 Chile en UTC
+          // No es necesario restar más, ya que Google Calendar interpreta timeMin como inclusivo.
+          calendarQueryStartUtc.setTime(targetDateStartUtc.getTime());
+           console.log(`🗓️ Query de Google Calendar ajustado para día específico ${targetDateIdentifierForSlotFilter}, desde: ${calendarQueryStartUtc.toISOString()}`);
       }
+
+
       const calendarQueryEndUtc = new Date(calendarQueryStartUtc);
-      calendarQueryEndUtc.setDate(calendarQueryEndUtc.getDate() + (isNextWeekQuery ? 14 : 7)); 
+      calendarQueryEndUtc.setDate(calendarQueryEndUtc.getDate() + (isNextWeekQuery && !targetDateIdentifierForSlotFilter ? 14 : 7)); // Si es "prox semana general", buscar 14 días
+      
       console.log(`🗓️ Google Calendar Query: De ${calendarQueryStartUtc.toISOString()} a ${calendarQueryEndUtc.toISOString()}`);
 
       const googleResponse = await calendar.events.list({
@@ -180,7 +213,7 @@ export default async function handler(req, res) {
 
           if (targetHourChile !== null) {
             if (hChile !== targetHourChile || mChile !== targetMinuteChile) continue;
-          } else if (timeOfDay && !isNextWeekQuery) { 
+          } else if (timeOfDay && !(isNextWeekQuery && !targetDateIdentifierForSlotFilter) ) { // No aplicar franja si es consulta genérica de prox semana
             if (timeOfDay === 'morning' && (hChile < 10 || hChile >= 14)) continue;
             if (timeOfDay === 'afternoon' && (hChile < 14 || hChile > 19 || (hChile === 19 && mChile > 30))) continue;
           }
@@ -209,8 +242,8 @@ export default async function handler(req, res) {
                 hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago'
             }).format(slotStartUtc);
             
-            if (!targetDateIdentifierForSlotFilter && !targetHourChile) {
-                if (availableSlotsOutput.length < 10) { // Aumentar un poco para tener más variedad inicial
+            if (!targetDateIdentifierForSlotFilter && !targetHourChile) { // Búsqueda genérica
+                if (availableSlotsOutput.length < 10) { 
                     if (!processedDaysForGenericQuery.has(slotDayIdentifierInChile) || availableSlotsOutput.length < 2) {
                          availableSlotsOutput.push(formattedSlot);
                          processedDaysForGenericQuery.add(slotDayIdentifierInChile);
@@ -218,22 +251,25 @@ export default async function handler(req, res) {
                          availableSlotsOutput.push(formattedSlot);
                     }
                 }
-            } else {
+            } else { // Búsqueda específica de día u hora
                  availableSlotsOutput.push(formattedSlot);
             }
           }
         }
+        // Si es una búsqueda para un día específico y ya procesamos ese día y encontramos suficientes, o no encontramos, podemos salir antes.
         if (targetDateIdentifierForSlotFilter && getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago') === targetDateIdentifierForSlotFilter) {
-            if (availableSlotsOutput.length > 0 || targetHourChile !== null) break; 
+            // Si se buscó una hora específica (targetHourChile no es null) y ya tenemos (o no) un resultado, podemos salir.
+            // O si es búsqueda de día/franja y ya tenemos MAX_SUGGESTIONS (o más) o no hay más, también.
+            if (targetHourChile !== null || availableSlotsOutput.length >= MAX_SUGGESTIONS ) break; 
         }
-        if (availableSlotsOutput.length >= 10 && !targetDateIdentifierForSlotFilter && !targetHourChile && processedDaysForGenericQuery.size >=2) break;
+        // Para búsqueda genérica, salir si tenemos suficientes sugerencias de varios días
+        if (availableSlotsOutput.length >= MAX_SUGGESTIONS && !targetDateIdentifierForSlotFilter && !targetHourChile && processedDaysForGenericQuery.size >=2) break; 
 
       }
       if(targetDateIdentifierForSlotFilter) console.log(`🔎 Slots encontrados para ${targetDateIdentifierForSlotFilter} (después de filtrar): ${availableSlotsOutput.length}`);
       else console.log(`🔎 Slots encontrados en búsqueda general: ${availableSlotsOutput.length}`);
       
       let reply = '';
-      // ***** LÍNEA AÑADIDA *****
       const MAX_SUGGESTIONS = 5; 
 
       if (targetHourChile !== null) { 
@@ -259,34 +295,33 @@ export default async function handler(req, res) {
         intro += ':';
 
         let finalSuggestions = [];
-        if (!targetDateIdentifierForSlotFilter && !targetHourChile) {
+        if (!targetDateIdentifierForSlotFilter && !targetHourChile) { // Lógica para variedad en búsqueda genérica
             const slotsByDay = {};
             for (const slot of availableSlotsOutput) {
-                const dayName = slot.split(',')[0]; // Obtiene el nombre del día del string formateado
+                const dayName = slot.split(',')[0]; 
                 if (!slotsByDay[dayName]) slotsByDay[dayName] = [];
-                if (slotsByDay[dayName].length < 2) { // Máximo 2 sugerencias por día diferente
+                if (slotsByDay[dayName].length < 2) { 
                     slotsByDay[dayName].push(slot);
                 }
             }
             let count = 0;
+            OuterLoop: // Etiqueta para el bucle externo
             for (const day in slotsByDay) {
                 for(const slot of slotsByDay[day]){
                     if(count < MAX_SUGGESTIONS){
                         finalSuggestions.push(slot);
                         count++;
                     } else {
-                        break;
+                        break OuterLoop; // Salir de ambos bucles
                     }
                 }
-                if (count >= MAX_SUGGESTIONS) break;
             }
-        } else {
+        } else { // Para búsquedas específicas de día/hora, tomar los primeros.
             finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS);
         }
 
         reply = `${intro}\n- ${finalSuggestions.join('\n- ')}`;
         
-        // Ajustar el mensaje de "Y más..."
         if (availableSlotsOutput.length > finalSuggestions.length) {
            const remaining = availableSlotsOutput.length - finalSuggestions.length;
            if (remaining > 0) {
