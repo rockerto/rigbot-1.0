@@ -9,6 +9,8 @@ const openai = new OpenAI({
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const CHILE_UTC_OFFSET_HOURS = -4; 
+// ***** MAX_SUGGESTIONS MOVIDA AQUÍ ARRIBA *****
+const MAX_SUGGESTIONS = 5; 
 
 function convertChileTimeToUtc(baseDateUtcDay, chileHour, chileMinute) {
   let utcHour = chileHour - CHILE_UTC_OFFSET_HOURS;
@@ -188,16 +190,16 @@ export default async function handler(req, res) {
 
       const iterationDays = (isNextWeekQuery && !targetDateIdentifierForSlotFilter) ? 14 : 7; 
       
-      // Asegurar que baseIterationDateDayUtcStart se inicialice correctamente
       let baseIterationDateDayUtcStart;
-      if (isNextWeekQuery && targetDateForDisplay && !targetDateIdentifierForSlotFilter) { // "prox semana" general
-          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); // targetDateForDisplay ya es Lunes prox 00:00 Chile en UTC
-      } else if (targetDateForDisplay) { // Día específico (puede ser hoy, mañana, o un día de prox semana)
-          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); // targetDateForDisplay ya es 00:00 Chile en UTC para ese día
-      } else { // Búsqueda general desde hoy
-          baseIterationDateDayUtcStart = new Date(refDateForTargetCalc); // refDateForTargetCalc es Hoy 00:00 Chile en UTC
+      if (isNextWeekQuery && targetDateForDisplay && !targetDateIdentifierForSlotFilter) { 
+          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); 
+      } else if (targetDateForDisplay) { 
+          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); 
+      } else { 
+          baseIterationDateDayUtcStart = new Date(refDateForTargetCalc); 
       }
-      // La normalización a 00:00 Chile en UTC ya está hecha en la definición de estas fechas base.
+      // No es necesaria la re-normalización de baseIterationDateDayUtcStart aquí
+      // porque targetDateForDisplay y refDateForTargetCalc ya son 00:00 Chile en UTC.
 
       for (let i = 0; i < iterationDays; i++) {
         const currentDayProcessingUtcStart = new Date(baseIterationDateDayUtcStart);
@@ -251,14 +253,18 @@ export default async function handler(req, res) {
             }
           }
         }
+        // MAX_SUGGESTIONS se usa aquí en las condiciones de break
         if (targetDateIdentifierForSlotFilter && getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago') === targetDateIdentifierForSlotFilter) {
             if (targetHourChile !== null || availableSlotsOutput.length >= MAX_SUGGESTIONS ) break; 
         }
         if (availableSlotsOutput.length >= MAX_SUGGESTIONS && !targetDateIdentifierForSlotFilter && !targetHourChile && processedDaysForGenericQuery.size >=2) break; 
       }
-
-      const MAX_SUGGESTIONS = 5; 
+      // MAX_SUGGESTIONS se usa aquí también, pero ya está declarada a nivel de módulo
+      if(targetDateIdentifierForSlotFilter) console.log(`🔎 Slots encontrados para ${targetDateIdentifierForSlotFilter} (después de filtrar): ${availableSlotsOutput.length}`);
+      else console.log(`🔎 Slots encontrados en búsqueda general: ${availableSlotsOutput.length}`);
+      
       let reply = '';
+      // MAX_SUGGESTIONS ya está declarada a nivel de módulo, por lo que no hace falta aquí.
 
       if (targetHourChile !== null) { 
         if (availableSlotsOutput.length > 0) {
@@ -293,19 +299,19 @@ export default async function handler(req, res) {
                 }
             }
             let count = 0;
-            for (const day in slotsByDay) { // Eliminada etiqueta OuterLoop
+            for (const day in slotsByDay) { // Etiqueta OuterLoop eliminada
                 for(const slot of slotsByDay[day]){
-                    if(count < MAX_SUGGESTIONS){
+                    if(count < MAX_SUGGESTIONS){ // MAX_SUGGESTIONS usada aquí
                         finalSuggestions.push(slot);
                         count++;
                     } else {
                         break; 
                     }
                 }
-                if (count >= MAX_SUGGESTIONS) break; 
+                if (count >= MAX_SUGGESTIONS) break; // MAX_SUGGESTIONS usada aquí
             }
         } else { 
-            finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS);
+            finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS); // MAX_SUGGESTIONS usada aquí
         }
 
         reply = `${intro}\n- ${finalSuggestions.join('\n- ')}`;
