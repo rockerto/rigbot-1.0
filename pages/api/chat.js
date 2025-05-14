@@ -9,7 +9,6 @@ const openai = new OpenAI({
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const CHILE_UTC_OFFSET_HOURS = -4; 
-// ***** MAX_SUGGESTIONS MOVIDA AQUÍ ARRIBA *****
 const MAX_SUGGESTIONS = 5; 
 
 function convertChileTimeToUtc(baseDateUtcDay, chileHour, chileMinute) {
@@ -179,6 +178,14 @@ export default async function handler(req, res) {
           return null;
         }).filter(Boolean);
       console.log(`Found ${busySlots.length} busy slots from Google Calendar.`);
+      // ***** LOG AÑADIDO PARA DEPURAR BUSY SLOTS *****
+      if (busySlots.length > 0) {
+        console.log("DEBUG: Contenido de busySlots (eventos UTC de Google Calendar):");
+        busySlots.forEach((bs, index) => {
+          console.log(`  BusySlot ${index}: Start: ${new Date(bs.start).toISOString()}, End: ${new Date(bs.end).toISOString()}`);
+        });
+      }
+      // ***** FIN DEL LOG AÑADIDO *****
 
       const WORKING_HOURS_CHILE_STR = [
         '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
@@ -198,8 +205,6 @@ export default async function handler(req, res) {
       } else { 
           baseIterationDateDayUtcStart = new Date(refDateForTargetCalc); 
       }
-      // No es necesaria la re-normalización de baseIterationDateDayUtcStart aquí
-      // porque targetDateForDisplay y refDateForTargetCalc ya son 00:00 Chile en UTC.
 
       for (let i = 0; i < iterationDays; i++) {
         const currentDayProcessingUtcStart = new Date(baseIterationDateDayUtcStart);
@@ -253,18 +258,19 @@ export default async function handler(req, res) {
             }
           }
         }
-        // MAX_SUGGESTIONS se usa aquí en las condiciones de break
         if (targetDateIdentifierForSlotFilter && getDayIdentifier(currentDayProcessingUtcStart, 'America/Santiago') === targetDateIdentifierForSlotFilter) {
             if (targetHourChile !== null || availableSlotsOutput.length >= MAX_SUGGESTIONS ) break; 
         }
         if (availableSlotsOutput.length >= MAX_SUGGESTIONS && !targetDateIdentifierForSlotFilter && !targetHourChile && processedDaysForGenericQuery.size >=2) break; 
       }
-      // MAX_SUGGESTIONS se usa aquí también, pero ya está declarada a nivel de módulo
-      if(targetDateIdentifierForSlotFilter) console.log(`🔎 Slots encontrados para ${targetDateIdentifierForSlotFilter} (después de filtrar): ${availableSlotsOutput.length}`);
-      else console.log(`🔎 Slots encontrados en búsqueda general: ${availableSlotsOutput.length}`);
+      
+      if(targetDateIdentifierForSlotFilter) {
+          console.log(`🔎 Slots encontrados para el día de Chile ${targetDateIdentifierForSlotFilter}: ${availableSlotsOutput.length}`);
+      } else {
+          console.log(`🔎 Slots encontrados en búsqueda general (próximos ${iterationDays} días): ${availableSlotsOutput.length}`);
+      }
       
       let reply = '';
-      // MAX_SUGGESTIONS ya está declarada a nivel de módulo, por lo que no hace falta aquí.
 
       if (targetHourChile !== null) { 
         if (availableSlotsOutput.length > 0) {
@@ -299,19 +305,19 @@ export default async function handler(req, res) {
                 }
             }
             let count = 0;
-            for (const day in slotsByDay) { // Etiqueta OuterLoop eliminada
+            for (const day in slotsByDay) { 
                 for(const slot of slotsByDay[day]){
-                    if(count < MAX_SUGGESTIONS){ // MAX_SUGGESTIONS usada aquí
+                    if(count < MAX_SUGGESTIONS){
                         finalSuggestions.push(slot);
                         count++;
                     } else {
                         break; 
                     }
                 }
-                if (count >= MAX_SUGGESTIONS) break; // MAX_SUGGESTIONS usada aquí
+                if (count >= MAX_SUGGESTIONS) break; 
             }
         } else { 
-            finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS); // MAX_SUGGESTIONS usada aquí
+            finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS);
         }
 
         reply = `${intro}\n- ${finalSuggestions.join('\n- ')}`;
