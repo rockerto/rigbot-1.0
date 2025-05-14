@@ -141,19 +141,14 @@ export default async function handler(req, res) {
       }
 
       let calendarQueryStartUtc = new Date(serverNowUtc);
-      if (isNextWeekQuery && targetDateForDisplay) { // Si es "prox semana" Y se calculó un inicio (lunes prox)
+      if (isNextWeekQuery && targetDateForDisplay) { 
           calendarQueryStartUtc.setTime(targetDateForDisplay.getTime()); 
-      } else if (targetDateForDisplay) { // Si es un día específico (no necesariamente de "prox semana")
+      } else if (targetDateForDisplay) { 
           calendarQueryStartUtc.setTime(targetDateForDisplay.getTime());
       }
-      // Si no es isNextWeekQuery ni targetDateForDisplay (búsqueda general), calendarQueryStartUtc se queda como serverNowUtc.
       
       const calendarQueryEndUtc = new Date(calendarQueryStartUtc);
-      // Si es "prox semana general" (sin día específico), buscar 14 días desde el lunes próximo.
-      // Si es "prox semana" Y un día específico (targetDateForDisplay ya es ese día), buscar solo 7 días desde ahí.
-      // Si es un día específico (no prox semana), buscar 7 días desde ahí.
-      // Si es búsqueda general (sin día ni prox semana), buscar 7 días desde hoy.
-      if (isNextWeekQuery && !targetDateIdentifierForSlotFilter) { // "prox semana" general
+      if (isNextWeekQuery && !targetDateIdentifierForSlotFilter) { 
           calendarQueryEndUtc.setDate(calendarQueryStartUtc.getUTCDate() + 14);
       } else {
           calendarQueryEndUtc.setDate(calendarQueryStartUtc.getUTCDate() + 7);
@@ -192,10 +187,17 @@ export default async function handler(req, res) {
       const processedDaysForGenericQuery = new Set(); 
 
       const iterationDays = (isNextWeekQuery && !targetDateIdentifierForSlotFilter) ? 14 : 7; 
-      let baseIterationDateDayUtcStart = new Date(calendarQueryStartUtc); // Usar el inicio de la query de GCal como base
-      // Asegurar que sea 00:00 UTC de ese día para el bucle
-      baseIterationDateDayUtcStart.setUTCHours(0,0,0,0);
-
+      
+      // Asegurar que baseIterationDateDayUtcStart se inicialice correctamente
+      let baseIterationDateDayUtcStart;
+      if (isNextWeekQuery && targetDateForDisplay && !targetDateIdentifierForSlotFilter) { // "prox semana" general
+          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); // targetDateForDisplay ya es Lunes prox 00:00 Chile en UTC
+      } else if (targetDateForDisplay) { // Día específico (puede ser hoy, mañana, o un día de prox semana)
+          baseIterationDateDayUtcStart = new Date(targetDateForDisplay); // targetDateForDisplay ya es 00:00 Chile en UTC para ese día
+      } else { // Búsqueda general desde hoy
+          baseIterationDateDayUtcStart = new Date(refDateForTargetCalc); // refDateForTargetCalc es Hoy 00:00 Chile en UTC
+      }
+      // La normalización a 00:00 Chile en UTC ya está hecha en la definición de estas fechas base.
 
       for (let i = 0; i < iterationDays; i++) {
         const currentDayProcessingUtcStart = new Date(baseIterationDateDayUtcStart);
@@ -297,10 +299,10 @@ export default async function handler(req, res) {
                         finalSuggestions.push(slot);
                         count++;
                     } else {
-                        break; // Salir del bucle interno (de slots de un día)
+                        break; 
                     }
                 }
-                if (count >= MAX_SUGGESTIONS) break; // Salir del bucle externo (de días)
+                if (count >= MAX_SUGGESTIONS) break; 
             }
         } else { 
             finalSuggestions = availableSlotsOutput.slice(0, MAX_SUGGESTIONS);
